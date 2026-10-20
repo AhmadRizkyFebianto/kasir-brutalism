@@ -1,6 +1,6 @@
 # PRD — Kopi & Space Hub POS
 
-**Status:** Implementasi bertahap — irisan 1 (fondasi dan katalog Supabase)  
+**Status:** Implementasi bertahap — irisan 1 (autentikasi/katalog) dan 2 (bon)  
 **Platform:** Web responsif, Next.js + TypeScript + Tailwind CSS + Framer Motion  
 **Backend/data:** Supabase (Postgres, Auth, Storage)  
 **Pembayaran:** Midtrans
@@ -54,6 +54,8 @@ Kopi & Space Hub membutuhkan terminal kasir untuk satu gerai yang menjual minuma
 - **PAY-01:** total dihitung ulang di server; browser tidak menjadi sumber nilai tagihan.
 - **PAY-02:** callback Midtrans memvalidasi signature, environment, nominal, order ID, dan status; callback berulang tidak menggandakan efek.
 - **PAY-03:** kunci server dan kredensial service role tidak pernah dikirim ke browser.
+- **ORD-02:** harga dan total bon dihitung ulang melalui RPC database; aplikasi hanya mengirim product ID dan jumlah.
+- **ORD-03:** bon draft tersimpan dengan snapshot harga, dapat diedit oleh kasir pembuat, dan tetap terlihat setelah terminal dimuat ulang.
 - **INV-01:** stok berkurang secara atomik setelah transaksi dibayar sesuai kebijakan yang disepakati.
 - **SPACE-01:** reservasi menolak bentrok jadwal; aturan buffer, pembatalan, dan durasi minimum masih perlu dipastikan.
 - **RPT-01:** laporan MVP menampilkan total per hari, metode pembayaran, dan transaksi yang perlu ditindaklanjuti.
@@ -86,6 +88,8 @@ Setiap tabel operasional membawa `store_id`; kebijakan Row Level Security membat
 4. Durasi, harga, buffer, deposit, pembatalan, dan no-show untuk setiap ruang.
 5. Bentuk struk, perangkat/printer, nomor urut, retensi data, dan kebijakan refund.
 6. Peran, alur tutup shift, serta rekonsiliasi kas.
+
+**Perilaku implementasi sementara:** tarif pajak, layanan, dan diskon dimulai dari 0 basis point. Jika tarif disetel, diskon saat ini mengurangi basis pajak dan layanan; setiap biaya dibulatkan ke rupiah terdekat. Owner perlu mengonfirmasi rumus pajak dan kebijakan diskon sebelum pembayaran produksi diaktifkan.
 
 ## 11. Tahapan
 1. Validasi aturan bisnis dan akun sandbox.

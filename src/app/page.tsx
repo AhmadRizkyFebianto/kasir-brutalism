@@ -127,11 +127,13 @@ export default function Home() {
     let current = true;
 
     async function loadCatalog(authUser: User) {
+      const client = createSupabaseBrowserClient();
+      if (!client) return;
       setCatalogLoading(true);
       const configuredStore = process.env.NEXT_PUBLIC_POS_STORE_ID;
       let storeId = configuredStore;
       if (!storeId) {
-        const { data: membership, error: membershipError } = await supabase
+        const { data: membership, error: membershipError } = await client
           .from("store_members").select("store_id,role").eq("user_id", authUser.id).limit(1).maybeSingle();
         if (membershipError || !membership) {
           if (current) { setCatalog([]); setNotice("Akun ini belum diberi akses ke gerai. Minta owner menambahkan keanggotaan kasir."); setCatalogLoading(false); }
@@ -140,20 +142,24 @@ export default function Home() {
         storeId = membership.store_id;
         if (current) setMemberRole(membership.role);
       } else {
-        const { data: member } = await supabase.from("store_members").select("role").eq("store_id", storeId).eq("user_id", authUser.id).maybeSingle();
+        const { data: member } = await client.from("store_members").select("role").eq("store_id", storeId).eq("user_id", authUser.id).maybeSingle();
         if (current) setMemberRole(member?.role ?? "");
       }
+      if (!storeId) {
+        if (current) { setNotice("Gerai untuk akun ini tidak ditemukan."); setCatalogLoading(false); }
+        return;
+      }
       if (current) setStoreId(storeId);
-      const { data: activeShift } = await supabase.from("cashier_shifts").select("id,opened_at,opening_cash,status")
+      const { data: activeShift } = await client.from("cashier_shifts").select("id,opened_at,opening_cash,status")
         .eq("store_id", storeId).eq("cashier_id", authUser.id).eq("status", "open").maybeSingle();
       if (current) setCashierShift(activeShift as CashierShift | null);
       const [{ data: store }, { data, error }, { data: settings, error: settingsError }, { data: spaces }, { data: tableData }, { data: reservations }] = await Promise.all([
-        supabase.from("stores").select("name").eq("id", storeId).maybeSingle(),
-        supabase.from("products").select("id,name,sku,category,kind,price,stock,image_url,tag").eq("store_id", storeId).eq("is_active", true).order("name"),
-        supabase.from("store_settings").select("tax_rate_bps,service_rate_bps,discount_rate_bps").eq("store_id", storeId).maybeSingle(),
-        supabase.from("store_spaces").select("id,product_id,code,capacity").eq("store_id", storeId).eq("is_active", true),
-        supabase.from("store_tables").select("code,label,area,capacity,status").eq("store_id", storeId).eq("is_active", true).order("code"),
-        supabase.from("space_reservations").select("space_id,status,starts_at,ends_at,hold_expires_at").eq("store_id", storeId).in("status", ["held", "reserved", "checked_in"]),
+        client.from("stores").select("name").eq("id", storeId).maybeSingle(),
+        client.from("products").select("id,name,sku,category,kind,price,stock,image_url,tag").eq("store_id", storeId).eq("is_active", true).order("name"),
+        client.from("store_settings").select("tax_rate_bps,service_rate_bps,discount_rate_bps").eq("store_id", storeId).maybeSingle(),
+        client.from("store_spaces").select("id,product_id,code,capacity").eq("store_id", storeId).eq("is_active", true),
+        client.from("store_tables").select("code,label,area,capacity,status").eq("store_id", storeId).eq("is_active", true).order("code"),
+        client.from("space_reservations").select("space_id,status,starts_at,ends_at,hold_expires_at").eq("store_id", storeId).in("status", ["held", "reserved", "checked_in"]),
       ]);
       if (!current) return;
       if (error) setNotice(`Katalog gagal dimuat: ${error.message}`);
@@ -171,7 +177,7 @@ export default function Home() {
         setSpaces((spaces ?? []).map((space) => ({ id: space.id, productId: space.product_id, code: space.code, capacity: space.capacity })));
         if (settings) setRates({ tax: settings.tax_rate_bps, service: settings.service_rate_bps, discount: settings.discount_rate_bps });
         if (settingsError) setNotice(`Pengaturan biaya belum dimuat; total sementara memakai tarif nol: ${settingsError.message}`);
-        const { data: orders } = await supabase.from("orders")
+        const { data: orders } = await client.from("orders")
           .select("id,order_code,subtotal,discount_amount,tax_amount,service_amount,total_amount,status,table_code")
           .eq("store_id", storeId).eq("cashier_id", authUser.id).in("status", ["open", "pending_payment"])
           .order("created_at", { ascending: false }).limit(10);
@@ -179,7 +185,7 @@ export default function Home() {
         if (current) setOpenOrders(savedOrders);
         const openOrder = orders?.[0];
         if (openOrder) {
-          const { data: orderItems } = await supabase.from("order_items").select("product_id,quantity")
+          const { data: orderItems } = await client.from("order_items").select("product_id,quantity")
             .eq("store_id", storeId).eq("order_id", openOrder.id);
           const restoredCart: CartLine[] = (orderItems ?? []).flatMap((item) => {
             const product = nextCatalog.find((entry) => entry.id === item.product_id);
@@ -190,7 +196,7 @@ export default function Home() {
             setCart(restoredCart);
             setSavedOrder({ id: openOrder.id, code: openOrder.order_code, subtotal: openOrder.subtotal, discount: openOrder.discount_amount, tax: openOrder.tax_amount, service: openOrder.service_amount, total: openOrder.total_amount, signature, status: openOrder.status, tableCode: openOrder.table_code });
             setSelectedTable(openOrder.table_code);
-            const { data: reservation } = await supabase.from("space_reservations").select("id,space_id,customer_name,guest_count,starts_at,ends_at,hold_expires_at")
+            const { data: reservation } = await client.from("space_reservations").select("id,space_id,customer_name,guest_count,starts_at,ends_at,hold_expires_at")
               .eq("store_id", storeId).eq("order_id", openOrder.id).eq("status", "reserved").limit(1).maybeSingle();
             const reservedSpace = (spaces ?? []).find((space) => space.id === reservation?.space_id);
             if (reservation && reservedSpace) setActiveReservation({ id: reservation.id, spaceId: reservation.space_id, productId: reservedSpace.product_id, startsAt: reservation.starts_at, endsAt: reservation.ends_at, guestCount: reservation.guest_count, customerName: reservation.customer_name ?? undefined, orderId: openOrder.id, holdExpiresAt: reservation.hold_expires_at });
@@ -522,7 +528,7 @@ export default function Home() {
     if (!summary) { setNotice("Shift ditutup, tetapi ringkasannya tidak tersedia."); return; }
     setCashierShift(null);
     setShiftDialogOpen(false);
-    setNotice(`Shift ditutup · tunai Rp ${money(summary.cash_sales)} · non-tunai Rp ${money(summary.other_sales)} · selisih kas ${summary.cash_difference < 0 ? "-" : "+"}Rp ${money(Math.abs(summary.cash_difference)}).`);
+    setNotice(`Shift ditutup · tunai Rp ${money(summary.cash_sales)} · non-tunai Rp ${money(summary.other_sales)} · selisih kas ${summary.cash_difference < 0 ? "-" : "+"}Rp ${money(Math.abs(summary.cash_difference))}.`);
   }
   function openAdmin() {
     if (!['owner', 'admin'].includes(memberRole)) return;
@@ -685,7 +691,7 @@ export default function Home() {
     }
     window.addEventListener("keydown", handleKeyboardShortcut);
     return () => window.removeEventListener("keydown", handleKeyboardShortcut);
-  }, [receiptOpen, historyOpen, adminOpen, shiftDialogOpen, bookingProduct, paymentOpen, orderMenuOpen, startNewOrder, checkout, saveOrder]);
+  });
 
   if (isSupabaseConfigured && authLoading) return <main className="login-screen"><div className="login-card login-loading"><div className="login-icon"><LockKeyhole size={21} /></div><h1>Menyiapkan terminal…</h1><p>Memeriksa sesi kasir.</p></div></main>;
   if (isSupabaseConfigured && !user) return <main className="login-screen"><LoginForm onLogin={() => setNotice("Berhasil masuk.")} /></main>;

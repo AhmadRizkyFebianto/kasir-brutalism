@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Check, CircleHelp, LoaderCircle } from "lucide-react";
 
@@ -16,7 +16,7 @@ export default function PaymentFinishPage() {
     if (params.get("result") === "error") setMessage("Pembayaran belum selesai. Anda dapat kembali ke terminal dan mencoba lagi.");
   }, []);
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     if (!orderId) { setMessage("ID bon tidak ditemukan pada tautan kembali."); return; }
     setBusy(true);
     try {
@@ -29,9 +29,9 @@ export default function PaymentFinishPage() {
     } finally {
       setBusy(false);
     }
-  }
+  }, [orderId]);
 
-  useEffect(() => { if (orderId) void refresh(); }, [orderId]);
+  useEffect(() => { if (orderId) void refresh(); }, [orderId, refresh]);
 
   return <main className="login-screen"><section className="login-card payment-finish">
     <div className={`login-icon ${orderStatus === "paid" ? "paid-icon" : ""}`}>{orderStatus === "paid" ? <Check size={22} /> : busy ? <LoaderCircle size={22} className="spin" /> : <CircleHelp size={22} />}</div>

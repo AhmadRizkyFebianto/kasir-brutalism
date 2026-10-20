@@ -23,6 +23,7 @@ Without Supabase environment values, the POS opens in clearly labeled demo mode.
 - Admin catalog management, store rates, and daily payment report: `6675920` (`feat: add admin catalog tools and daily sales report`)
 - Receipt preview and browser printing: `de9ea5a` (`feat: add printable payment receipts`)
 - Payment history and receipt reprint: `e7cc9aa` (`feat: add payment history and receipt reprints`)
-- SKU/space-code search and POS keyboard shortcuts: implemented in the latest feature commit
+- SKU/space-code search and POS keyboard shortcuts: `5597758` (`feat: add POS SKU search and keyboard shortcuts`)
+- Product category and quick-filter behavior: next feature commit
 
-The repository has no remote configured. Push only after adding the Git remote for your own repository.
+The repository uses the configured `origin` remote. Review `git remote -v` before pushing if the destination needs to change.

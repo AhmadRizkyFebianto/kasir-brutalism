@@ -8,6 +8,7 @@ Antarmuka terminal kasir desktop yang padat, cepat dibaca, dan terasa seperti al
 - Informasi ketersediaan ruang memakai status Ready, Booked, dan Terpakai; produk menampilkan stok.
 - Pintasan F1 (order baru), F2 (checkout), F3 (fokus pencarian), F4 (tahan bon), dan ESC (tutup panel/dialog aktif) tersedia untuk alur kasir.
 - Pencarian katalog mencocokkan nama, kategori, SKU, dan kode ruang.
+- Kategori rail (kopi, non-kopi/teh, makanan berat, snack/pastry, ruang) dan filter cepat bekerja sebagai irisan; memilih keduanya menampilkan hasil yang memenuhi kedua pilihan.
 - Desktop memakai tiga kolom; tablet dan ponsel menumpuk katalog di atas bon dan menyembunyikan panel denah yang tidak muat.
 - Framer Motion hanya memberi transisi masuk, perubahan jumlah/layout, dan toast; gerak singkat (sekitar 200–250 ms) agar tidak menghambat kerja kasir.
 

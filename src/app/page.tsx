@@ -38,6 +38,27 @@ const products: Product[] = [
 
 const money = (n: number) => new Intl.NumberFormat("id-ID").format(n);
 const categories = ["Semua Menu & Space", "Kopi Nusantara", "Non-Kopi & Teh", "Makanan Berat", "Snack & Pastry", "Sewa Ruang / Space"];
+const normalizeCatalogText = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+function matchesRailCategory(product: Product, selectedCategory: string) {
+  const text = normalizeCatalogText(`${product.category} ${product.name} ${product.sku ?? ""}`);
+  if (selectedCategory === categories[0]) return true;
+  if (selectedCategory === "Sewa Ruang / Space") return product.kind === "space";
+  if (product.kind === "space") return false;
+  if (selectedCategory === "Kopi Nusantara") return /kopi|coffee|v60|single origin/.test(text) && !/non[ -]coffee|non[ -]kopi/.test(text);
+  if (selectedCategory === "Non-Kopi & Teh") return /non[ -]coffee|non[ -]kopi|matcha|teh|tea/.test(text);
+  if (selectedCategory === "Makanan Berat") return /makanan berat|makanan utama|main course|heavy meal/.test(text);
+  if (selectedCategory === "Snack & Pastry") return /snack|pastry|bakery|croissant|roti|bread/.test(text);
+  return true;
+}
+function matchesQuickFilter(product: Product, selectedFilter: string) {
+  if (selectedFilter === "Semua") return true;
+  if (selectedFilter === "Sewa Space") return product.kind === "space";
+  if (product.kind === "space") return false;
+  const text = normalizeCatalogText(`${product.category} ${product.name} ${product.sku ?? ""}`);
+  if (selectedFilter === "Kopi & Minuman") return /kopi|coffee|v60|single origin|matcha|teh|tea|minuman/.test(text);
+  if (selectedFilter === "Makanan") return /makanan|food|meal|snack|pastry|bakery|croissant|roti|bread/.test(text);
+  return true;
+}
 const signatureFor = (items: { product_id: string; quantity: number }[]) => JSON.stringify([...items].sort((a, b) => a.product_id.localeCompare(b.product_id)));
 const demoTables: StoreTable[] = [
   { code: "T-04", desc: "Table Indoor #04", area: "Indoor", capacity: 4, status: "available" },
@@ -202,8 +223,8 @@ export default function Home() {
     const normalizedQuery = query.trim().toLowerCase();
     const spaceCode = spaces.find((space) => space.productId === p.id)?.code ?? "";
     const matchesQuery = !normalizedQuery || [p.name, p.sku ?? "", p.category, spaceCode].some((value) => value.toLowerCase().includes(normalizedQuery));
-    const matchesCategory = category === categories[0] || (category.includes("Space") ? p.kind === "space" : p.kind === "product");
-    const matchesFilter = activeFilter === "Semua" || (activeFilter === "Kopi & Minuman" ? p.category.toLowerCase().includes("kopi") : activeFilter === "Makanan" ? p.category.toLowerCase().includes("pastry") : p.kind === "space");
+    const matchesCategory = matchesRailCategory(p, category);
+    const matchesFilter = matchesQuickFilter(p, activeFilter);
     return matchesQuery && matchesCategory && matchesFilter;
   }), [catalog, spaces, query, category, activeFilter]);
   const signature = signatureFor(cart.map(({ product, qty }) => ({ product_id: product.id, quantity: qty })));

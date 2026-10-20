@@ -4,8 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Banknote, Bell, BriefcaseBusiness, CalendarDays, Check, ChevronDown, CircleHelp,
-  Clock3, Coffee, Command, CreditCard, LayoutGrid, LockKeyhole, Minus, Plus,
-  Printer, Search, ShoppingBag, Sparkles, Trash2, Utensils, X,
+  Clock3, Coffee, Command, CreditCard, FileBarChart, LayoutGrid, LockKeyhole, Minus, Plus,
+  Printer, Save, Search, Settings, ShoppingBag, Sparkles, Trash2, Utensils, X,
 } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 import { LoginForm } from "./login-form";
@@ -19,6 +19,8 @@ type StoreTable = { code: string; desc: string; area: string; capacity: number; 
 type SpaceRecord = { id: string; productId: string; code: string; capacity: number };
 type SpaceReservation = { id: string; spaceId: string; productId: string; startsAt: string; endsAt: string; guestCount: number; customerName?: string; orderId?: string; holdExpiresAt?: string };
 type CashierShift = { id: string; opened_at: string; opening_cash: number; status: "open" | "closed" };
+type CatalogDraft = { id: string; sku: string; name: string; category: string; price: string; stock: string; image_url: string; tag: string };
+type ReportPayment = { id: string; order_id: string; amount: number; payment_type: string | null; paid_at: string | null; };
 
 const products: Product[] = [
   { id: "demo-1", name: "Kopi Susu Gula Aren Hub", category: "Kopi • Dingin", price: 22000, stock: 48, kind: "product", image: "https://images.unsplash.com/photo-1517701604599-bb29b565090c?auto=format&fit=crop&w=700&q=85", tag: "BESTSELLER" },
@@ -60,6 +62,15 @@ export default function Home() {
   const [openingCashInput, setOpeningCashInput] = useState("0");
   const [countedCashInput, setCountedCashInput] = useState("");
   const [shiftBusy, setShiftBusy] = useState(false);
+  const [memberRole, setMemberRole] = useState("");
+  const [adminOpen, setAdminOpen] = useState(false);
+  const [adminTab, setAdminTab] = useState<"catalog" | "rates" | "report">("catalog");
+  const [adminBusy, setAdminBusy] = useState(false);
+  const [adminMessage, setAdminMessage] = useState("");
+  const [productDraft, setProductDraft] = useState<CatalogDraft>({ id: "", sku: "", name: "", category: "Kopi", price: "", stock: "", image_url: "", tag: "" });
+  const [rateDraft, setRateDraft] = useState({ tax: "0", service: "0", discount: "0" });
+  const [reportPayments, setReportPayments] = useState<ReportPayment[]>([]);
+  const [reportLoading, setReportLoading] = useState(false);
   const [bookingProduct, setBookingProduct] = useState<Product | null>(null);
   const [bookingStart, setBookingStart] = useState("");
   const [bookingDuration, setBookingDuration] = useState(2);
@@ -91,12 +102,16 @@ export default function Home() {
       let storeId = configuredStore;
       if (!storeId) {
         const { data: membership, error: membershipError } = await supabase
-          .from("store_members").select("store_id").eq("user_id", authUser.id).limit(1).maybeSingle();
+          .from("store_members").select("store_id,role").eq("user_id", authUser.id).limit(1).maybeSingle();
         if (membershipError || !membership) {
           if (current) { setCatalog([]); setNotice("Akun ini belum diberi akses ke gerai. Minta owner menambahkan keanggotaan kasir."); setCatalogLoading(false); }
           return;
         }
         storeId = membership.store_id;
+        if (current) setMemberRole(membership.role);
+      } else {
+        const { data: member } = await supabase.from("store_members").select("role").eq("store_id", storeId).eq("user_id", authUser.id).maybeSingle();
+        if (current) setMemberRole(member?.role ?? "");
       }
       if (current) setStoreId(storeId);
       const { data: activeShift } = await supabase.from("cashier_shifts").select("id,opened_at,opening_cash,status")
@@ -168,7 +183,7 @@ export default function Home() {
       if (!current) return;
       const activeUser = session?.user ?? null;
       setUser(activeUser);
-      if (!activeUser) { setCatalog([]); setCart([]); setSavedOrder(null); setOpenOrders([]); setSpaces([]); setTables([]); setActiveReservation(null); setSelectedTable(null); setCashierShift(null); requestId.current = null; requestSignature.current = null; setAuthLoading(false); }
+      if (!activeUser) { setCatalog([]); setCart([]); setSavedOrder(null); setOpenOrders([]); setSpaces([]); setTables([]); setActiveReservation(null); setSelectedTable(null); setCashierShift(null); setMemberRole(""); requestId.current = null; requestSignature.current = null; setAuthLoading(false); }
       else window.setTimeout(() => { if (current) void loadCatalog(activeUser); }, 0);
     });
     return () => { current = false; subscription.unsubscribe(); };
@@ -455,6 +470,86 @@ export default function Home() {
     setShiftDialogOpen(false);
     setNotice(`Shift ditutup · tunai Rp ${money(summary.cash_sales)} · non-tunai Rp ${money(summary.other_sales)} · selisih kas ${summary.cash_difference < 0 ? "-" : "+"}Rp ${money(Math.abs(summary.cash_difference)}).`);
   }
+  function openAdmin() {
+    if (!['owner', 'admin'].includes(memberRole)) return;
+    setAdminMessage("");
+    setRateDraft({ tax: String(rates.tax / 100), service: String(rates.service / 100), discount: String(rates.discount / 100) });
+    setAdminOpen(true);
+  }
+  function selectAdminProduct(product?: Product) {
+    setProductDraft(product ? {
+      id: product.id, sku: "", name: product.name, category: product.category, price: String(product.price),
+      stock: product.stock === undefined ? "" : String(product.stock), image_url: product.image, tag: product.tag,
+    } : { id: "", sku: "", name: "", category: "Kopi", price: "", stock: "", image_url: "", tag: "" });
+    if (product?.id) {
+      const supabase = createSupabaseBrowserClient();
+      void supabase?.from("products").select("sku").eq("id", product.id).maybeSingle().then(({ data }) => {
+        if (data) setProductDraft((current) => current.id === product.id ? { ...current, sku: data.sku ?? "" } : current);
+      });
+    }
+  }
+  async function saveCatalogProduct() {
+    if (!storeId) return;
+    const price = Number(productDraft.price);
+    const stock = productDraft.stock.trim() === "" ? null : Number(productDraft.stock);
+    if (!productDraft.name.trim() || !productDraft.category.trim() || !Number.isSafeInteger(price) || price < 0 || (stock !== null && (!Number.isSafeInteger(stock) || stock < 0))) {
+      setAdminMessage("Nama, kategori, harga, dan stok harus diisi dengan format yang benar."); return;
+    }
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase) return;
+    setAdminBusy(true);
+    const values = { sku: productDraft.sku.trim() || null, name: productDraft.name.trim(), category: productDraft.category.trim(), price, stock, image_url: productDraft.image_url.trim() || null, tag: productDraft.tag.trim() || null, updated_at: new Date().toISOString() };
+    const response = productDraft.id
+      ? await supabase.from("products").update(values).eq("store_id", storeId).eq("id", productDraft.id)
+      : await supabase.from("products").insert({ ...values, store_id: storeId, kind: "product" });
+    setAdminBusy(false);
+    if (response.error) { setAdminMessage(`Katalog gagal disimpan: ${response.error.message}`); return; }
+    setAdminMessage("Produk berhasil disimpan.");
+    await refreshCatalog();
+    if (!productDraft.id) selectAdminProduct();
+  }
+  async function toggleCatalogProduct(product: Product) {
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase || !storeId) return;
+    const { error } = await supabase.from("products").update({ is_active: false, updated_at: new Date().toISOString() }).eq("store_id", storeId).eq("id", product.id);
+    if (error) { setAdminMessage(`Produk gagal diarsipkan: ${error.message}`); return; }
+    setAdminMessage(`${product.name} diarsipkan dari katalog kasir.`);
+    await refreshCatalog();
+    if (productDraft.id === product.id) selectAdminProduct();
+  }
+  async function saveRates() {
+    const values = { tax_rate_bps: Math.round(Number(rateDraft.tax) * 100), service_rate_bps: Math.round(Number(rateDraft.service) * 100), discount_rate_bps: Math.round(Number(rateDraft.discount) * 100) };
+    if (Object.values(values).some((value) => !Number.isSafeInteger(value) || value < 0 || value > 10000)) { setAdminMessage("Tarif harus di antara 0% dan 100%."); return; }
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase || !storeId) return;
+    setAdminBusy(true);
+    const { error } = await supabase.from("store_settings").update(values).eq("store_id", storeId);
+    setAdminBusy(false);
+    if (error) { setAdminMessage(`Tarif gagal disimpan: ${error.message}`); return; }
+    setRates({ tax: values.tax_rate_bps, service: values.service_rate_bps, discount: values.discount_rate_bps });
+    setAdminMessage("Tarif pajak, layanan, dan diskon berhasil diperbarui.");
+  }
+  async function loadDailyReport() {
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase || !storeId) return;
+    setReportLoading(true);
+    const start = new Date(); start.setHours(0, 0, 0, 0);
+    const all: ReportPayment[] = [];
+    let offset = 0;
+    while (true) {
+      const { data, error } = await supabase.from("payments").select("id,order_id,amount,payment_type,paid_at")
+        .eq("store_id", storeId).eq("status", "succeeded").gte("paid_at", start.toISOString())
+        .order("paid_at", { ascending: false }).range(offset, offset + 999);
+      if (error) { setReportLoading(false); setAdminMessage(`Laporan tidak dapat dimuat: ${error.message}`); return; }
+      all.push(...(data ?? []) as ReportPayment[]);
+      if (!data || data.length < 1000) break;
+      offset += 1000;
+    }
+    setReportLoading(false);
+    setReportPayments(all);
+  }
+  const dailyCash = reportPayments.filter((payment) => payment.payment_type === "cash").reduce((sum, payment) => sum + payment.amount, 0);
+  const dailyNonCash = reportPayments.filter((payment) => payment.payment_type !== "cash").reduce((sum, payment) => sum + payment.amount, 0);
   async function refreshCatalog() {
     const supabase = createSupabaseBrowserClient();
     if (!supabase || !storeId) return;
@@ -484,7 +579,7 @@ export default function Home() {
     <main className="pos-shell">
       <header className="topbar">
         <div className="brand"><div className="brand-mark"><Command size={19} strokeWidth={3} /></div><span>{storeName}</span><div className="online-chip"><i />{isSupabaseConfigured ? "ONLINE: KASIR" : "MODE DEMO"}</div></div>
-        <div className="top-actions"><button className="shift-chip" onClick={() => setShiftDialogOpen(true)}><Clock3 size={14} />{cashierShift ? "Shift Aktif" : "Shift Tutup"}<b>{cashierShift ? new Date(cashierShift.opened_at).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "—"}</b></button><button className="control-btn" onClick={() => { setCountedCashInput(String(cashierShift?.opening_cash ?? 0)); setShiftDialogOpen(true); }}><LockKeyhole size={15} />{cashierShift ? "Tutup Shift" : "Buka Shift"}</button><button className="icon-btn" aria-label="refresh" onClick={() => void refreshCatalog()}><Sparkles size={16} /></button><button className="icon-btn notification" aria-label="notifications"><Bell size={17} /></button>{user ? <button className="avatar" title={user.email ?? "Kasir"} onClick={async () => { await createSupabaseBrowserClient()?.auth.signOut(); }}>KS</button> : <button className="avatar">KS</button>}</div>
+        <div className="top-actions"><button className="shift-chip" onClick={() => setShiftDialogOpen(true)}><Clock3 size={14} />{cashierShift ? "Shift Aktif" : "Shift Tutup"}<b>{cashierShift ? new Date(cashierShift.opened_at).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "—"}</b></button><button className="control-btn" onClick={() => { setCountedCashInput(String(cashierShift?.opening_cash ?? 0)); setShiftDialogOpen(true); }}><LockKeyhole size={15} />{cashierShift ? "Tutup Shift" : "Buka Shift"}</button>{['owner', 'admin'].includes(memberRole) && <button className="icon-btn" aria-label="Pengaturan gerai" title="Katalog, tarif, dan laporan" onClick={openAdmin}><Settings size={16} /></button>}<button className="icon-btn" aria-label="refresh" onClick={() => void refreshCatalog()}><Sparkles size={16} /></button><button className="icon-btn notification" aria-label="notifications"><Bell size={17} /></button>{user ? <button className="avatar" title={user.email ?? "Kasir"} onClick={async () => { await createSupabaseBrowserClient()?.auth.signOut(); }}>KS</button> : <button className="avatar">KS</button>}</div>
       </header>
 
       <div className="workspace">
@@ -513,6 +608,20 @@ export default function Home() {
           <div className="payment-summary"><div><span>Subtotal ({cart.length} Item):</span><b>Rp {money(subtotal)}</b></div><div><span>Pajak ({rates.tax / 100}%):</span><b>Rp {money(tax)}</b></div><div><span>Biaya Layanan ({rates.service / 100}%):</span><b>Rp {money(service)}</b></div><div className="discount-row"><span>Diskon ({rates.discount / 100}%):</span><b>- Rp {money(discount)}</b></div><div className="grand-total"><span><small>TOTAL TAGIHAN {savedOrder ? "TERSIMPAN" : "SEMENTARA"}</small><b>IDR</b></span><strong>{money(total)}</strong></div><button className="pay-button" onClick={checkout} disabled={orderBusy}><CreditCard size={19} /> {savedOrder && savedCartCurrent ? "BAYAR [F2]" : "SIMPAN & BAYAR [F2]"}</button><div className="receipt-actions"><button onClick={() => void startNewOrder()}><BriefcaseBusiness size={14} />Order Baru</button><button disabled><Printer size={14} />Cetak Struk</button></div></div>
         </aside>
       </div>
+      <AnimatePresence>{adminOpen && <motion.div className="modal-backdrop admin-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+        <motion.section className="payment-modal admin-modal" role="dialog" aria-modal="true" aria-labelledby="admin-title" initial={{ y: 14, scale: .98 }} animate={{ y: 0, scale: 1 }} exit={{ y: 10, opacity: 0 }}>
+          <button className="modal-close" aria-label="Tutup pengaturan" onClick={() => setAdminOpen(false)}><X size={18} /></button>
+          <div className="modal-eyebrow">OWNER / ADMIN</div><h2 id="admin-title">Pengaturan gerai</h2>
+          <div className="admin-tabs"><button className={adminTab === "catalog" ? "active" : ""} onClick={() => setAdminTab("catalog")}><ShoppingBag size={14} />Katalog</button><button className={adminTab === "rates" ? "active" : ""} onClick={() => setAdminTab("rates")}><Settings size={14} />Tarif</button><button className={adminTab === "report" ? "active" : ""} onClick={() => { setAdminTab("report"); void loadDailyReport(); }}><FileBarChart size={14} />Laporan hari ini</button></div>
+          {adminTab === "catalog" && <div className="admin-content">
+            <div className="admin-product-list"><button className="admin-product-new" onClick={() => selectAdminProduct()}>+ Produk baru</button>{catalog.filter((product) => product.kind === "product").map((product) => <button key={product.id} className={`admin-product-option ${productDraft.id === product.id ? "active" : ""}`} onClick={() => selectAdminProduct(product)}><span><b>{product.name}</b><small>Rp {money(product.price)} · {product.stock ?? "Stok ∞"}</small></span><ChevronDown size={14} /></button>)}</div>
+            <div className="admin-form"><label>Nama produk<input value={productDraft.name} onChange={(event) => setProductDraft({ ...productDraft, name: event.target.value })} /></label><div className="admin-two"><label>SKU<input value={productDraft.sku} onChange={(event) => setProductDraft({ ...productDraft, sku: event.target.value })} /></label><label>Kategori<input value={productDraft.category} onChange={(event) => setProductDraft({ ...productDraft, category: event.target.value })} /></label></div><div className="admin-two"><label>Harga (Rp)<input type="number" min={0} step={1000} value={productDraft.price} onChange={(event) => setProductDraft({ ...productDraft, price: event.target.value })} /></label><label>Stok (kosong = ∞)<input type="number" min={0} step={1} value={productDraft.stock} onChange={(event) => setProductDraft({ ...productDraft, stock: event.target.value })} /></label></div><label>URL foto<input value={productDraft.image_url} onChange={(event) => setProductDraft({ ...productDraft, image_url: event.target.value })} /></label><label>Label katalog<input value={productDraft.tag} onChange={(event) => setProductDraft({ ...productDraft, tag: event.target.value })} placeholder="BESTSELLER / BARU" /></label><div className="admin-form-actions"><button className="login-submit" onClick={() => void saveCatalogProduct()} disabled={adminBusy}><Save size={16} />{adminBusy ? "Menyimpan…" : "Simpan produk"}</button>{productDraft.id && <button className="admin-archive" onClick={() => { const product = catalog.find((entry) => entry.id === productDraft.id); if (product) void toggleCatalogProduct(product); }}>Arsipkan</button>}</div></div>
+          </div>}
+          {adminTab === "rates" && <div className="admin-rates"><p>Tarif diterapkan pada bon baru oleh perhitungan server Supabase.</p><label>Pajak (%)<input type="number" min={0} max={100} step="0.01" value={rateDraft.tax} onChange={(event) => setRateDraft({ ...rateDraft, tax: event.target.value })} /></label><label>Biaya layanan (%)<input type="number" min={0} max={100} step="0.01" value={rateDraft.service} onChange={(event) => setRateDraft({ ...rateDraft, service: event.target.value })} /></label><label>Diskon umum (%)<input type="number" min={0} max={100} step="0.01" value={rateDraft.discount} onChange={(event) => setRateDraft({ ...rateDraft, discount: event.target.value })} /></label><button className="login-submit" onClick={() => void saveRates()} disabled={adminBusy}><Save size={16} />{adminBusy ? "Menyimpan…" : "Simpan tarif"}</button></div>}
+          {adminTab === "report" && <div className="admin-report"><div className="report-day">PENJUALAN HARI INI · {new Date().toLocaleDateString("id-ID", { dateStyle: "long" })}</div><div className="report-stats"><div><small>TRANSAKSI</small><b>{reportPayments.length}</b></div><div><small>TUNAI</small><b>Rp {money(dailyCash)}</b></div><div><small>NON-TUNAI</small><b>Rp {money(dailyNonCash)}</b></div><div><small>TOTAL</small><b>Rp {money(dailyCash + dailyNonCash)}</b></div></div><div className="report-list">{reportLoading ? <p>Memuat transaksi…</p> : reportPayments.length ? reportPayments.map((payment) => <div key={payment.id}><span><b>{payment.order_id.slice(0, 8).toUpperCase()}</b><small>{payment.payment_type ?? "Online"} · {payment.paid_at ? new Date(payment.paid_at).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "—"}</small></span><strong>Rp {money(payment.amount)}</strong></div>) : <p>Belum ada pembayaran lunas hari ini.</p>}</div><button className="check-status" onClick={() => void loadDailyReport()} disabled={reportLoading}><Sparkles size={14} />Muat ulang laporan</button></div>}
+          {adminMessage && <div className="payment-message" role="status">{adminMessage}</div>}
+        </motion.section>
+      </motion.div>}</AnimatePresence>
       <AnimatePresence>{shiftDialogOpen && <motion.div className="modal-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
         <motion.section className="payment-modal booking-modal" role="dialog" aria-modal="true" aria-labelledby="shift-title" initial={{ y: 14, scale: .98 }} animate={{ y: 0, scale: 1 }} exit={{ y: 10, opacity: 0 }}>
           <button className="modal-close" aria-label="Tutup dialog shift" onClick={() => setShiftDialogOpen(false)}><X size={18} /></button>

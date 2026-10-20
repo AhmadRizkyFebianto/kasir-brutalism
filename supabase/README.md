@@ -28,6 +28,8 @@ The reservation migration seeds two bookable spaces and four table cards for the
 
 The shift migration adds one active shift per cashier and store. Payments created by an authenticated cashier are linked to that cashier's active shift; payment creation is rejected until the cashier opens one. Closing the shift records counted cash, expected cash (opening float plus successful cash payments), non-cash sales, and the variance. Midtrans payments are included in non-cash totals after their verified success callback.
 
+Owners and admins can manage active retail products and store tax/service/discount rates in the terminal's settings panel. The daily report summarizes successful payments from the current local calendar day, by cash and non-cash channel. Space inventory remains managed through the Supabase tables so room capacity and reservation metadata stay consistent.
+
 To add a cashier after creating their Auth user:
 
 ```sql

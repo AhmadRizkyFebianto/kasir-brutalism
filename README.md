@@ -25,5 +25,6 @@ Without Supabase environment values, the POS opens in clearly labeled demo mode.
 - Payment history and receipt reprint: `e7cc9aa` (`feat: add payment history and receipt reprints`)
 - SKU/space-code search and POS keyboard shortcuts: `5597758` (`feat: add POS SKU search and keyboard shortcuts`)
 - Product category and quick-filter behavior: `bd5881c` (`feat: make POS category filters specific`)
+- Financial report filters (day, week, month, and year): included in the current feature commit
 
 The repository uses the configured `origin` remote. Review `git remote -v` before pushing if the destination needs to change.

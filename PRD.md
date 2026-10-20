@@ -61,7 +61,7 @@ Kopi & Space Hub membutuhkan terminal kasir untuk satu gerai yang menjual minuma
 - **SHIFT-01:** kasir wajib membuka shift sebelum menerima pembayaran; transaksi tertaut ke shift aktif.
 - **SHIFT-02:** penutupan shift merekam saldo awal, tunai terhitung, tunai diharapkan, non-tunai, dan selisih.
 - **ADM-01:** owner/admin dapat membuat, mengubah, dan mengarsipkan produk; kasir hanya membaca katalog.
-- **ADM-02:** owner/admin dapat mengubah tarif gerai dan melihat laporan pembayaran harian per metode.
+- **ADM-02:** owner/admin dapat mengubah tarif gerai dan melihat laporan pembayaran per hari, minggu, bulan, dan tahun berdasarkan metode pembayaran.
 - **RCP-01:** setelah pembayaran lunas, kasir dapat melihat dan mencetak struk browser dari snapshot item dan total tersimpan.
 - **RPT-02:** kasir/admin dapat melihat 100 pembayaran terbaru gerai dan membuka kembali struk untuk transaksi yang lunas.
 - **POS-04:** pencarian mencocokkan nama, kategori, SKU, dan kode ruang; shortcut F1/F2/F3/F4/ESC menjalankan aksi POS terkait.
@@ -70,7 +70,7 @@ Kopi & Space Hub membutuhkan terminal kasir untuk satu gerai yang menjual minuma
 - **ORD-03:** bon draft tersimpan dengan snapshot harga, dapat diedit oleh kasir pembuat, dan tetap terlihat setelah terminal dimuat ulang.
 - **INV-01:** stok berkurang secara atomik setelah transaksi dibayar sesuai kebijakan yang disepakati.
 - **SPACE-01:** reservasi menolak bentrok jadwal; aturan buffer, pembatalan, dan durasi minimum masih perlu dipastikan.
-- **RPT-01:** laporan MVP menampilkan total per hari, metode pembayaran, dan transaksi yang perlu ditindaklanjuti.
+- **RPT-01:** laporan MVP dapat difilter per hari, minggu (Senin–Minggu), bulan, dan tahun, dengan ringkasan jumlah transaksi, tunai, non-tunai, total pendapatan, dan daftar pembayaran lunas.
 
 ## 7. Data inti (konseptual)
 `stores`, `profiles`, `products`, `categories`, `inventory_movements`, `spaces`, `space_reservations`, `orders`, `order_items`, `payments`, `shifts`, `audit_logs`.

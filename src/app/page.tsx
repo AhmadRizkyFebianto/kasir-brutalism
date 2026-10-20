@@ -21,6 +21,7 @@ type SpaceReservation = { id: string; spaceId: string; productId: string; starts
 type CashierShift = { id: string; opened_at: string; opening_cash: number; status: "open" | "closed" };
 type CatalogDraft = { id: string; sku: string; name: string; category: string; price: string; stock: string; image_url: string; tag: string };
 type ReportPayment = { id: string; order_id: string; amount: number; payment_type: string | null; paid_at: string | null; };
+type ReportPeriod = "day" | "week" | "month" | "year";
 type ReceiptLine = { name: string; quantity: number; unitPrice: number; lineTotal: number };
 type ReceiptData = { code: string; storeName: string; paidAt: string; method: string; tableCode: string | null; subtotal: number; discount: number; tax: number; service: number; total: number; lines: ReceiptLine[] };
 type HistoryEntry = { paymentId: string; orderId: string; code: string; tableCode: string | null; orderStatus: string; paymentStatus: string; amount: number; paymentType: string | null; paidAt: string | null; createdAt: string };
@@ -95,6 +96,11 @@ export default function Home() {
   const [rateDraft, setRateDraft] = useState({ tax: "0", service: "0", discount: "0" });
   const [reportPayments, setReportPayments] = useState<ReportPayment[]>([]);
   const [reportLoading, setReportLoading] = useState(false);
+  const [reportPeriod, setReportPeriod] = useState<ReportPeriod>("day");
+  const [reportAnchorDate, setReportAnchorDate] = useState(() => {
+    const today = new Date();
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  });
   const [lastReceipt, setLastReceipt] = useState<ReceiptData | null>(null);
   const [receiptOpen, setReceiptOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -589,16 +595,26 @@ export default function Home() {
     setRates({ tax: values.tax_rate_bps, service: values.service_rate_bps, discount: values.discount_rate_bps });
     setAdminMessage("Tarif pajak, layanan, dan diskon berhasil diperbarui.");
   }
-  async function loadDailyReport() {
+  async function loadFinancialReport(period: ReportPeriod = reportPeriod, anchorDate = reportAnchorDate) {
     const supabase = createSupabaseBrowserClient();
     if (!supabase || !storeId) return;
+    const [year, month, day] = anchorDate.split("-").map(Number);
+    if (!year || !month || !day) { setAdminMessage("Pilih tanggal laporan yang valid."); return; }
+    const start = new Date(year, month - 1, day);
+    if (period === "week") start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+    if (period === "month") start.setDate(1);
+    if (period === "year") { start.setMonth(0, 1); }
+    const end = new Date(start);
+    if (period === "day") end.setDate(end.getDate() + 1);
+    if (period === "week") end.setDate(end.getDate() + 7);
+    if (period === "month") end.setMonth(end.getMonth() + 1);
+    if (period === "year") end.setFullYear(end.getFullYear() + 1);
     setReportLoading(true);
-    const start = new Date(); start.setHours(0, 0, 0, 0);
     const all: ReportPayment[] = [];
     let offset = 0;
     while (true) {
       const { data, error } = await supabase.from("payments").select("id,order_id,amount,payment_type,paid_at")
-        .eq("store_id", storeId).eq("status", "succeeded").gte("paid_at", start.toISOString())
+        .eq("store_id", storeId).eq("status", "succeeded").gte("paid_at", start.toISOString()).lt("paid_at", end.toISOString())
         .order("paid_at", { ascending: false }).range(offset, offset + 999);
       if (error) { setReportLoading(false); setAdminMessage(`Laporan tidak dapat dimuat: ${error.message}`); return; }
       all.push(...(data ?? []) as ReportPayment[]);
@@ -606,10 +622,26 @@ export default function Home() {
       offset += 1000;
     }
     setReportLoading(false);
+    setAdminMessage("");
     setReportPayments(all);
   }
-  const dailyCash = reportPayments.filter((payment) => payment.payment_type === "cash").reduce((sum, payment) => sum + payment.amount, 0);
-  const dailyNonCash = reportPayments.filter((payment) => payment.payment_type !== "cash").reduce((sum, payment) => sum + payment.amount, 0);
+  const reportCash = reportPayments.filter((payment) => payment.payment_type === "cash").reduce((sum, payment) => sum + payment.amount, 0);
+  const reportNonCash = reportPayments.filter((payment) => payment.payment_type !== "cash").reduce((sum, payment) => sum + payment.amount, 0);
+  const reportTotal = reportCash + reportNonCash;
+  const reportRangeLabel = (() => {
+    const [year, month, day] = reportAnchorDate.split("-").map(Number);
+    if (!year || !month || !day) return "Pilih tanggal laporan";
+    const start = new Date(year, month - 1, day);
+    if (reportPeriod === "week") start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+    if (reportPeriod === "month") start.setDate(1);
+    if (reportPeriod === "year") start.setMonth(0, 1);
+    const end = new Date(start);
+    if (reportPeriod === "week") end.setDate(end.getDate() + 6);
+    if (reportPeriod === "month") end.setMonth(end.getMonth() + 1, 0);
+    if (reportPeriod === "year") end.setFullYear(end.getFullYear() + 1, 0, 0);
+    const dateFormat: Intl.DateTimeFormatOptions = { dateStyle: "medium" };
+    return `${start.toLocaleDateString("id-ID", dateFormat)}${reportPeriod === "day" ? "" : ` — ${end.toLocaleDateString("id-ID", dateFormat)}`}`;
+  })();
   async function loadTransactionHistory() {
     const supabase = createSupabaseBrowserClient();
     if (!supabase || !storeId) return;
@@ -758,13 +790,23 @@ export default function Home() {
         <motion.section className="payment-modal admin-modal" role="dialog" aria-modal="true" aria-labelledby="admin-title" initial={{ y: 14, scale: .98 }} animate={{ y: 0, scale: 1 }} exit={{ y: 10, opacity: 0 }}>
           <button className="modal-close" aria-label="Tutup pengaturan" onClick={() => setAdminOpen(false)}><X size={18} /></button>
           <div className="modal-eyebrow">OWNER / ADMIN</div><h2 id="admin-title">Pengaturan gerai</h2>
-          <div className="admin-tabs"><button className={adminTab === "catalog" ? "active" : ""} onClick={() => setAdminTab("catalog")}><ShoppingBag size={14} />Katalog</button><button className={adminTab === "rates" ? "active" : ""} onClick={() => setAdminTab("rates")}><Settings size={14} />Tarif</button><button className={adminTab === "report" ? "active" : ""} onClick={() => { setAdminTab("report"); void loadDailyReport(); }}><FileBarChart size={14} />Laporan hari ini</button></div>
+          <div className="admin-tabs"><button className={adminTab === "catalog" ? "active" : ""} onClick={() => setAdminTab("catalog")}><ShoppingBag size={14} />Katalog</button><button className={adminTab === "rates" ? "active" : ""} onClick={() => setAdminTab("rates")}><Settings size={14} />Tarif</button><button className={adminTab === "report" ? "active" : ""} onClick={() => { setAdminTab("report"); void loadFinancialReport(); }}><FileBarChart size={14} />Laporan keuangan</button></div>
           {adminTab === "catalog" && <div className="admin-content">
             <div className="admin-product-list"><button className="admin-product-new" onClick={() => selectAdminProduct()}>+ Produk baru</button>{catalog.filter((product) => product.kind === "product").map((product) => <button key={product.id} className={`admin-product-option ${productDraft.id === product.id ? "active" : ""}`} onClick={() => selectAdminProduct(product)}><span><b>{product.name}</b><small>Rp {money(product.price)} · {product.stock ?? "Stok ∞"}</small></span><ChevronDown size={14} /></button>)}</div>
             <div className="admin-form"><label>Nama produk<input value={productDraft.name} onChange={(event) => setProductDraft({ ...productDraft, name: event.target.value })} /></label><div className="admin-two"><label>SKU<input value={productDraft.sku} onChange={(event) => setProductDraft({ ...productDraft, sku: event.target.value })} /></label><label>Kategori<input value={productDraft.category} onChange={(event) => setProductDraft({ ...productDraft, category: event.target.value })} /></label></div><div className="admin-two"><label>Harga (Rp)<input type="number" min={0} step={1000} value={productDraft.price} onChange={(event) => setProductDraft({ ...productDraft, price: event.target.value })} /></label><label>Stok (kosong = ∞)<input type="number" min={0} step={1} value={productDraft.stock} onChange={(event) => setProductDraft({ ...productDraft, stock: event.target.value })} /></label></div><label>URL foto<input value={productDraft.image_url} onChange={(event) => setProductDraft({ ...productDraft, image_url: event.target.value })} /></label><label>Label katalog<input value={productDraft.tag} onChange={(event) => setProductDraft({ ...productDraft, tag: event.target.value })} placeholder="BESTSELLER / BARU" /></label><div className="admin-form-actions"><button className="login-submit" onClick={() => void saveCatalogProduct()} disabled={adminBusy}><Save size={16} />{adminBusy ? "Menyimpan…" : "Simpan produk"}</button>{productDraft.id && <button className="admin-archive" onClick={() => { const product = catalog.find((entry) => entry.id === productDraft.id); if (product) void toggleCatalogProduct(product); }}>Arsipkan</button>}</div></div>
           </div>}
           {adminTab === "rates" && <div className="admin-rates"><p>Tarif diterapkan pada bon baru oleh perhitungan server Supabase.</p><label>Pajak (%)<input type="number" min={0} max={100} step="0.01" value={rateDraft.tax} onChange={(event) => setRateDraft({ ...rateDraft, tax: event.target.value })} /></label><label>Biaya layanan (%)<input type="number" min={0} max={100} step="0.01" value={rateDraft.service} onChange={(event) => setRateDraft({ ...rateDraft, service: event.target.value })} /></label><label>Diskon umum (%)<input type="number" min={0} max={100} step="0.01" value={rateDraft.discount} onChange={(event) => setRateDraft({ ...rateDraft, discount: event.target.value })} /></label><button className="login-submit" onClick={() => void saveRates()} disabled={adminBusy}><Save size={16} />{adminBusy ? "Menyimpan…" : "Simpan tarif"}</button></div>}
-          {adminTab === "report" && <div className="admin-report"><div className="report-day">PENJUALAN HARI INI · {new Date().toLocaleDateString("id-ID", { dateStyle: "long" })}</div><div className="report-stats"><div><small>TRANSAKSI</small><b>{reportPayments.length}</b></div><div><small>TUNAI</small><b>Rp {money(dailyCash)}</b></div><div><small>NON-TUNAI</small><b>Rp {money(dailyNonCash)}</b></div><div><small>TOTAL</small><b>Rp {money(dailyCash + dailyNonCash)}</b></div></div><div className="report-list">{reportLoading ? <p>Memuat transaksi…</p> : reportPayments.length ? reportPayments.map((payment) => <div key={payment.id}><span><b>{payment.order_id.slice(0, 8).toUpperCase()}</b><small>{payment.payment_type ?? "Online"} · {payment.paid_at ? new Date(payment.paid_at).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "—"}</small></span><strong>Rp {money(payment.amount)}</strong></div>) : <p>Belum ada pembayaran lunas hari ini.</p>}</div><button className="check-status" onClick={() => void loadDailyReport()} disabled={reportLoading}><Sparkles size={14} />Muat ulang laporan</button></div>}
+          {adminTab === "report" && <div className="admin-report">
+            <div className="report-filter">
+              <label>Periode<select value={reportPeriod} onChange={(event) => setReportPeriod(event.target.value as ReportPeriod)}><option value="day">Harian</option><option value="week">Mingguan</option><option value="month">Bulanan</option><option value="year">Tahunan</option></select></label>
+              <label>Tanggal acuan<input type="date" value={reportAnchorDate} onChange={(event) => setReportAnchorDate(event.target.value)} /></label>
+              <button className="login-submit" onClick={() => void loadFinancialReport()} disabled={reportLoading}><FileBarChart size={15} />{reportLoading ? "Memuat…" : "Tampilkan"}</button>
+            </div>
+            <div className="report-day">PENDAPATAN LUNAS · {reportRangeLabel}</div>
+            <div className="report-stats"><div><small>TRANSAKSI</small><b>{reportPayments.length}</b></div><div><small>TUNAI</small><b>Rp {money(reportCash)}</b></div><div><small>NON-TUNAI</small><b>Rp {money(reportNonCash)}</b></div><div><small>TOTAL</small><b>Rp {money(reportTotal)}</b></div></div>
+            <div className="report-list">{reportLoading ? <p>Memuat transaksi…</p> : reportPayments.length ? reportPayments.map((payment) => <div key={payment.id}><span><b>{payment.order_id.slice(0, 8).toUpperCase()}</b><small>{payment.payment_type ?? "Online"} · {payment.paid_at ? new Date(payment.paid_at).toLocaleString("id-ID", { dateStyle: "short", timeStyle: "short" }) : "—"}</small></span><strong>Rp {money(payment.amount)}</strong></div>) : <p>Tidak ada pembayaran lunas pada periode ini.</p>}</div>
+            <button className="check-status" onClick={() => void loadFinancialReport()} disabled={reportLoading}><Sparkles size={14} />Muat ulang laporan</button>
+          </div>}
           {adminMessage && <div className="payment-message" role="status">{adminMessage}</div>}
         </motion.section>
       </motion.div>}</AnimatePresence>

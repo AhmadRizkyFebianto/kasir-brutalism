@@ -41,8 +41,8 @@ Outline utama 2–3 px dengan shadow offset 2–3 px tanpa blur. Kartu konten me
 - Modal reservasi ruang: waktu mulai, durasi, jumlah tamu, nama pemesan, serta estimasi biaya; bon hanya menerima satu reservasi ruang pada irisan awal.
 - Dialog checkout: pilihan QRIS/online via Midtrans atau tunai, tautan Snap, pemeriksaan status, dan pesan kesalahan yang tetap menampilkan konteks bon.
 - Dialog shift: saldo awal saat buka; kas terhitung dan ringkasan tunai/non-tunai saat tutup, dengan selisih kas yang terlihat jelas.
-- Panel admin: tab katalog, tarif gerai, dan laporan harian; akses panel hanya tampil untuk owner/admin.
-- Laporan harian memakai ringkasan kartu dan daftar transaksi pembayaran lunas dengan kanal dan waktu.
+- Panel admin: tab katalog, tarif gerai, dan laporan keuangan; akses panel hanya tampil untuk owner/admin.
+- Laporan keuangan dapat difilter harian, mingguan, bulanan, atau tahunan dengan tanggal acuan; tampilkan ringkasan jumlah transaksi, tunai, non-tunai, total, serta pembayaran lunas beserta kanal dan waktunya.
 - Struk menampilkan gerai, nomor bon, waktu, meja, item dan kuantitas, rincian biaya, total, serta metode pembayaran; tata letak cetak dioptimalkan untuk kertas receipt sempit melalui dialog cetak browser.
 - Riwayat pembayaran menampilkan nomor bon, tanggal, meja, nominal, kanal, dan status; transaksi lunas dapat membuka pratinjau cetak ulang struk.
 - Keadaan perlu didesain lanjut: kosong, loading/skeleton, stok habis, ruang bentrok, pembayaran pending/gagal/berhasil, koneksi offline, dan rekonsiliasi lintas shift.

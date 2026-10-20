@@ -1,6 +1,6 @@
 # PRD — Kopi & Space Hub POS
 
-**Status:** Implementasi bertahap — irisan 1–7 selesai; irisan 8 (riwayat transaksi)
+**Status:** Implementasi bertahap — irisan 1–9 selesai
 **Platform:** Web responsif, Next.js + TypeScript + Tailwind CSS + Framer Motion  
 **Backend/data:** Supabase (Postgres, Auth, Storage)  
 **Pembayaran:** Midtrans
@@ -64,6 +64,7 @@ Kopi & Space Hub membutuhkan terminal kasir untuk satu gerai yang menjual minuma
 - **ADM-02:** owner/admin dapat mengubah tarif gerai dan melihat laporan pembayaran harian per metode.
 - **RCP-01:** setelah pembayaran lunas, kasir dapat melihat dan mencetak struk browser dari snapshot item dan total tersimpan.
 - **RPT-02:** kasir/admin dapat melihat 100 pembayaran terbaru gerai dan membuka kembali struk untuk transaksi yang lunas.
+- **POS-04:** pencarian mencocokkan nama, kategori, SKU, dan kode ruang; shortcut F1/F2/F3/F4/ESC menjalankan aksi POS terkait.
 - **ORD-02:** harga dan total bon dihitung ulang melalui RPC database; aplikasi hanya mengirim product ID dan jumlah.
 - **ORD-03:** bon draft tersimpan dengan snapshot harga, dapat diedit oleh kasir pembuat, dan tetap terlihat setelah terminal dimuat ulang.
 - **INV-01:** stok berkurang secara atomik setelah transaksi dibayar sesuai kebijakan yang disepakati.

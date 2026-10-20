@@ -11,7 +11,7 @@ import type { User } from "@supabase/supabase-js";
 import { LoginForm } from "./login-form";
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase/browser";
 
-type Product = { id: string; name: string; category: string; price: number; stock?: number; kind: "product" | "space"; image: string; tag: string; };
+type Product = { id: string; name: string; sku?: string; category: string; price: number; stock?: number; kind: "product" | "space"; image: string; tag: string; };
 type CartLine = { product: Product; qty: number };
 type SavedOrder = { id: string; code: string; subtotal: number; discount: number; tax: number; service: number; total: number; signature: string; status?: string; tableCode?: string | null };
 type PricingRates = { tax: number; service: number; discount: number };
@@ -26,10 +26,10 @@ type ReceiptData = { code: string; storeName: string; paidAt: string; method: st
 type HistoryEntry = { paymentId: string; orderId: string; code: string; tableCode: string | null; orderStatus: string; paymentStatus: string; amount: number; paymentType: string | null; paidAt: string | null; createdAt: string };
 
 const products: Product[] = [
-  { id: "demo-1", name: "Kopi Susu Gula Aren Hub", category: "Kopi • Dingin", price: 22000, stock: 48, kind: "product", image: "https://images.unsplash.com/photo-1517701604599-bb29b565090c?auto=format&fit=crop&w=700&q=85", tag: "BESTSELLER" },
-  { id: "demo-2", name: "Filter V60 Flores Bajawa", category: "Single Origin • V60", price: 35000, stock: 12, kind: "product", image: "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=700&q=85", tag: "" },
-  { id: "demo-3", name: "Private Focus Pod 02", category: "Sewa per jam • Spot #POD-02", price: 50000, kind: "space", image: "https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=700&q=85", tag: "TERSEDIA" },
-  { id: "demo-4", name: "VIP Creative Room A", category: "Hingga 15:30 • Reservasi", price: 150000, kind: "space", image: "https://images.unsplash.com/photo-1497366811353-6870744d04b2?auto=format&fit=crop&w=700&q=85", tag: "TERPAKAI" },
+  { id: "demo-1", name: "Kopi Susu Gula Aren Hub", sku: "KOPI-AREN", category: "Kopi • Dingin", price: 22000, stock: 48, kind: "product", image: "https://images.unsplash.com/photo-1517701604599-bb29b565090c?auto=format&fit=crop&w=700&q=85", tag: "BESTSELLER" },
+  { id: "demo-2", name: "Filter V60 Flores Bajawa", sku: "V60-FLORES", category: "Single Origin • V60", price: 35000, stock: 12, kind: "product", image: "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=700&q=85", tag: "" },
+  { id: "demo-3", name: "Private Focus Pod 02", sku: "POD-02", category: "Sewa per jam • Spot #POD-02", price: 50000, kind: "space", image: "https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=700&q=85", tag: "TERSEDIA" },
+  { id: "demo-4", name: "VIP Creative Room A", sku: "VIP-ROOM-A", category: "Hingga 15:30 • Reservasi", price: 150000, kind: "space", image: "https://images.unsplash.com/photo-1497366811353-6870744d04b2?auto=format&fit=crop&w=700&q=85", tag: "TERPAKAI" },
   { id: "demo-5", name: "Truffle Cheese Croissant", category: "Bakery • Fresh Oven", price: 38000, stock: 8, kind: "product", image: "https://images.unsplash.com/photo-1555507036-ab1f4038808a?auto=format&fit=crop&w=700&q=85", tag: "" },
   { id: "demo-6", name: "Kyoto Uji Matcha Latte", category: "Non-coffee • Oat Milk", price: 39000, stock: 24, kind: "product", image: "https://images.unsplash.com/photo-1515823064-d6e0c04616a7?auto=format&fit=crop&w=700&q=85", tag: "" },
   { id: "demo-7", name: "Es Kopi Pandan", category: "Kopi • Dingin", price: 27000, stock: 18, kind: "product", image: "https://images.unsplash.com/photo-1461023058943-07fcbe16d735?auto=format&fit=crop&w=700&q=85", tag: "BARU" },
@@ -93,6 +93,7 @@ export default function Home() {
   const [paymentMessage, setPaymentMessage] = useState("");
   const requestId = useRef<string | null>(null);
   const requestSignature = useRef<string | null>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
   const [category, setCategory] = useState(categories[0]);
   const [query, setQuery] = useState("");
   const [catalog, setCatalog] = useState<Product[]>(isSupabaseConfigured ? [] : products);
@@ -127,7 +128,7 @@ export default function Home() {
       if (current) setCashierShift(activeShift as CashierShift | null);
       const [{ data: store }, { data, error }, { data: settings, error: settingsError }, { data: spaces }, { data: tableData }, { data: reservations }] = await Promise.all([
         supabase.from("stores").select("name").eq("id", storeId).maybeSingle(),
-        supabase.from("products").select("id,name,category,kind,price,stock,image_url,tag").eq("store_id", storeId).eq("is_active", true).order("name"),
+        supabase.from("products").select("id,name,sku,category,kind,price,stock,image_url,tag").eq("store_id", storeId).eq("is_active", true).order("name"),
         supabase.from("store_settings").select("tax_rate_bps,service_rate_bps,discount_rate_bps").eq("store_id", storeId).maybeSingle(),
         supabase.from("store_spaces").select("id,product_id,code,capacity").eq("store_id", storeId).eq("is_active", true),
         supabase.from("store_tables").select("code,label,area,capacity,status").eq("store_id", storeId).eq("is_active", true).order("code"),
@@ -141,7 +142,7 @@ export default function Home() {
           const space = (spaces ?? []).find((entry) => entry.product_id === row.id);
           const bookings = (reservations ?? []).filter((entry) => entry.space_id === space?.id && new Date(entry.ends_at).getTime() > now && (entry.status !== "held" || new Date(entry.hold_expires_at).getTime() > now));
           const tag = row.kind === "space" ? bookings.some((entry) => new Date(entry.starts_at).getTime() <= now) ? "TERPAKAI" : bookings.length ? "BOOKED" : "TERSEDIA" : row.tag ?? "";
-          return { id: row.id, name: row.name, category: row.category, price: row.price, stock: row.stock ?? undefined, kind: row.kind === "space" ? "space" : "product", image: row.image_url ?? "", tag };
+          return { id: row.id, name: row.name, sku: row.sku ?? undefined, category: row.category, price: row.price, stock: row.stock ?? undefined, kind: row.kind === "space" ? "space" : "product", image: row.image_url ?? "", tag };
         });
         setCatalog(nextCatalog);
         setStoreName(store?.name.toLocaleUpperCase("id-ID") ?? "KOPI & SPACE");
@@ -198,11 +199,13 @@ export default function Home() {
   }, []);
 
   const filtered = useMemo(() => catalog.filter((p) => {
-    const matchesQuery = p.name.toLowerCase().includes(query.toLowerCase());
+    const normalizedQuery = query.trim().toLowerCase();
+    const spaceCode = spaces.find((space) => space.productId === p.id)?.code ?? "";
+    const matchesQuery = !normalizedQuery || [p.name, p.sku ?? "", p.category, spaceCode].some((value) => value.toLowerCase().includes(normalizedQuery));
     const matchesCategory = category === categories[0] || (category.includes("Space") ? p.kind === "space" : p.kind === "product");
     const matchesFilter = activeFilter === "Semua" || (activeFilter === "Kopi & Minuman" ? p.category.toLowerCase().includes("kopi") : activeFilter === "Makanan" ? p.category.toLowerCase().includes("pastry") : p.kind === "space");
     return matchesQuery && matchesCategory && matchesFilter;
-  }), [catalog, query, category, activeFilter]);
+  }), [catalog, spaces, query, category, activeFilter]);
   const signature = signatureFor(cart.map(({ product, qty }) => ({ product_id: product.id, quantity: qty })));
   const savedCartCurrent = Boolean(savedOrder && savedOrder.signature === signature);
   const subtotal = savedCartCurrent ? savedOrder!.subtotal : cart.reduce((sum, line) => sum + line.product.price * line.qty, 0);
@@ -621,7 +624,7 @@ export default function Home() {
     const supabase = createSupabaseBrowserClient();
     if (!supabase || !storeId) return;
     const [{ data }, { data: spaceRows }, { data: reservations }] = await Promise.all([
-      supabase.from("products").select("id,name,category,kind,price,stock,image_url,tag").eq("store_id", storeId).eq("is_active", true).order("name"),
+      supabase.from("products").select("id,name,sku,category,kind,price,stock,image_url,tag").eq("store_id", storeId).eq("is_active", true).order("name"),
       supabase.from("store_spaces").select("id,product_id,code,capacity").eq("store_id", storeId).eq("is_active", true),
       supabase.from("space_reservations").select("space_id,status,starts_at,ends_at,hold_expires_at").eq("store_id", storeId).in("status", ["held", "reserved", "checked_in"]),
     ]);
@@ -630,7 +633,7 @@ export default function Home() {
       const space = (spaceRows ?? []).find((entry) => entry.product_id === row.id);
       const bookings = (reservations ?? []).filter((entry) => entry.space_id === space?.id && new Date(entry.ends_at).getTime() > now && (entry.status !== "held" || new Date(entry.hold_expires_at).getTime() > now));
       const tag = row.kind === "space" ? bookings.some((entry) => new Date(entry.starts_at).getTime() <= now) ? "TERPAKAI" : bookings.length ? "BOOKED" : "TERSEDIA" : row.tag ?? "";
-      return { id: row.id, name: row.name, category: row.category, price: row.price, stock: row.stock ?? undefined, kind: row.kind === "space" ? "space" as const : "product" as const, image: row.image_url ?? "", tag };
+      return { id: row.id, name: row.name, sku: row.sku ?? undefined, category: row.category, price: row.price, stock: row.stock ?? undefined, kind: row.kind === "space" ? "space" as const : "product" as const, image: row.image_url ?? "", tag };
     }));
   }
   async function refreshTables() {
@@ -639,6 +642,29 @@ export default function Home() {
     const { data } = await supabase.from("store_tables").select("code,label,area,capacity,status").eq("store_id", storeId).eq("is_active", true).order("code");
     if (data) setTables(data.map((table) => ({ code: table.code, desc: table.label, area: table.area, capacity: table.capacity, status: table.status === "occupied" || table.status === "closed" ? table.status : "available" })));
   }
+  useEffect(() => {
+    function handleKeyboardShortcut(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        if (receiptOpen) setReceiptOpen(false);
+        else if (historyOpen) setHistoryOpen(false);
+        else if (adminOpen) setAdminOpen(false);
+        else if (shiftDialogOpen) setShiftDialogOpen(false);
+        else if (bookingProduct) setBookingProduct(null);
+        else if (paymentOpen) setPaymentOpen(false);
+        else if (orderMenuOpen) setOrderMenuOpen(false);
+        return;
+      }
+      if (event.key === "F3") { event.preventDefault(); searchInput.current?.focus(); return; }
+      const target = event.target;
+      if (target instanceof HTMLElement && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))) return;
+      if (receiptOpen || historyOpen || adminOpen || shiftDialogOpen || bookingProduct || paymentOpen) return;
+      if (event.key === "F1") { event.preventDefault(); void startNewOrder(); }
+      if (event.key === "F2") { event.preventDefault(); void checkout(); }
+      if (event.key === "F4") { event.preventDefault(); void saveOrder(); }
+    }
+    window.addEventListener("keydown", handleKeyboardShortcut);
+    return () => window.removeEventListener("keydown", handleKeyboardShortcut);
+  }, [receiptOpen, historyOpen, adminOpen, shiftDialogOpen, bookingProduct, paymentOpen, orderMenuOpen, startNewOrder, checkout, saveOrder]);
 
   if (isSupabaseConfigured && authLoading) return <main className="login-screen"><div className="login-card login-loading"><div className="login-icon"><LockKeyhole size={21} /></div><h1>Menyiapkan terminal…</h1><p>Memeriksa sesi kasir.</p></div></main>;
   if (isSupabaseConfigured && !user) return <main className="login-screen"><LoginForm onLogin={() => setNotice("Berhasil masuk.")} /></main>;
@@ -661,7 +687,7 @@ export default function Home() {
         </aside>
 
         <section className="catalog-area">
-          <div className="catalog-toolbar"><div className="search-row"><kbd>[F3]</kbd><div className="search-box"><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Cari menu, SKU kopi, atau kode meja..." /><button aria-label="search"><Search size={18} /></button></div></div><div className="quick-actions"><button onClick={() => void startNewOrder()}><b>F1:</b> Order Baru</button><button className="quick-primary" onClick={checkout} disabled={orderBusy}><b>F2:</b> {orderBusy ? "Menyimpan…" : "Bayar / Checkout"}</button><button onClick={() => void saveOrder()} disabled={orderBusy}><b>F4:</b> Tahan Bon</button></div></div>
+          <div className="catalog-toolbar"><div className="search-row"><kbd>[F3]</kbd><div className="search-box"><input ref={searchInput} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Cari nama, SKU, atau kode ruang..." /><button aria-label="search" onClick={() => searchInput.current?.focus()}><Search size={18} /></button></div></div><div className="quick-actions"><button onClick={() => void startNewOrder()}><b>F1:</b> Order Baru</button><button className="quick-primary" onClick={checkout} disabled={orderBusy}><b>F2:</b> {orderBusy ? "Menyimpan…" : "Bayar / Checkout"}</button><button onClick={() => void saveOrder()} disabled={orderBusy}><b>F4:</b> Tahan Bon</button></div></div>
           <div className="filter-bar"><span className="filter-title">TAMPILKAN:</span><div className="filter-buttons">{["Semua", "Kopi & Minuman", "Makanan", "Sewa Space"].map((item) => <button key={item} onClick={() => setActiveFilter(item)} className={activeFilter === item ? "active" : ""}>{item === "Kopi & Minuman" && <Coffee size={13} />}{item === "Makanan" && <Utensils size={13} />}{item}</button>)}</div><div className="legend"><span><i className="status-dot green" />Ready</span><span><i className="status-dot yellow" />Booked</span><span><i className="status-dot red" />Terpakai</span></div></div>
           <div className="product-scroll"><div className="product-grid">{catalogLoading && <div className="empty-state">Memuat katalog dari Supabase…</div>}{filtered.map((product, index) => <motion.article key={product.id} className={`product-card ${product.kind === "space" ? "space-card" : ""}`} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.04, duration: 0.24 }} layout>
               <div className="product-photo" style={product.image ? { backgroundImage: `url("${product.image}")` } : undefined}><span className={`stock-tag ${product.kind === "space" ? "room-tag" : ""}`}>{product.kind === "space" ? <><span>RUANGAN</span><i className={`status-dot ${product.tag === "TERSEDIA" ? "green" : product.tag === "BOOKED" ? "yellow" : "red"}`} />{product.tag || "SPACE"}</> : <>STOK: {product.stock ?? "∞"}</>}</span>{product.tag === "BESTSELLER" && <span className="best-tag">BESTSELLER</span>}{product.tag === "TERPAKAI" && <span className="occupied-tag">● SEDANG DIPAKAI</span>}</div>

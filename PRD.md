@@ -1,6 +1,6 @@
 # PRD — Kopi & Space Hub POS
 
-**Status:** Draft awal untuk menyepakati lingkup MVP  
+**Status:** Implementasi bertahap — irisan 1 (fondasi dan katalog Supabase)  
 **Platform:** Web responsif, Next.js + TypeScript + Tailwind CSS + Framer Motion  
 **Backend/data:** Supabase (Postgres, Auth, Storage)  
 **Pembayaran:** Midtrans

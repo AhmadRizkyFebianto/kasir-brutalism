@@ -4,6 +4,7 @@
   "private": true,
   "scripts": { "dev": "next dev", "build": "next build", "start": "next start", "lint": "eslint" },
   "dependencies": {
+    "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.57.0",
     "framer-motion": "^12.23.12",
     "lucide-react": "^0.544.0",

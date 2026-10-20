@@ -36,10 +36,11 @@ Outline utama 2–3 px dengan shadow offset 2–3 px tanpa blur. Kartu konten me
 - Kartu katalog: foto, stok/status ruang, kategori, nama, harga, aksi tambah atau pesan.
 - Baris bon: nama, opsi hapus, stepper jumlah, subtotal baris. Untuk space tampil durasi/jadwal.
 - Kartu meja: kode, kapasitas, dan status berwarna plus teks agar warna bukan satu-satunya pembeda.
+- Dialog checkout: pilihan QRIS/online via Midtrans atau tunai, tautan Snap, pemeriksaan status, dan pesan kesalahan yang tetap menampilkan konteks bon.
 - Keadaan perlu didesain lanjut: kosong, loading/skeleton, stok habis, ruang bentrok, pembayaran pending/gagal/berhasil, koneksi offline, shift ditutup.
 
 ## Catatan implementasi
 - Komponen halaman sekarang berada di `src/app/page.tsx`; aturan visual di `src/app/globals.css`.
 - Foto demonstrasi memakai URL Unsplash. Ganti dengan aset katalog milik gerai sebelum rilis.
-- Angka pajak, layanan, diskon, reservasi, serta keranjang awal saat ini hanya fixture UI; jangan dipakai sebagai nilai transaksi produksi.
+- Tarif pajak, layanan, dan diskon dibaca dari pengaturan gerai; tarif baru nol sampai disepakati dan dikonfigurasi.
 - Integrasi Supabase dan Midtrans harus memakai server-side validation, idempotensi, dan callback/webhook terverifikasi.

@@ -1,6 +1,6 @@
 # PRD — Kopi & Space Hub POS
 
-**Status:** Implementasi bertahap — irisan 1 (autentikasi/katalog) dan 2 (bon)  
+**Status:** Implementasi bertahap — irisan 1 (autentikasi/katalog), 2 (bon), dan 3 (pembayaran)  
 **Platform:** Web responsif, Next.js + TypeScript + Tailwind CSS + Framer Motion  
 **Backend/data:** Supabase (Postgres, Auth, Storage)  
 **Pembayaran:** Midtrans
@@ -54,6 +54,8 @@ Kopi & Space Hub membutuhkan terminal kasir untuk satu gerai yang menjual minuma
 - **PAY-01:** total dihitung ulang di server; browser tidak menjadi sumber nilai tagihan.
 - **PAY-02:** callback Midtrans memvalidasi signature, environment, nominal, order ID, dan status; callback berulang tidak menggandakan efek.
 - **PAY-03:** kunci server dan kredensial service role tidak pernah dikirim ke browser.
+- **PAY-04:** Snap dibuat di server dengan total bon yang tersimpan; status akhir hanya berasal dari callback terverifikasi atau pemeriksaan status Midtrans.
+- **PAY-05:** pembayaran tunai menandai lunas secara atomik dan memperbarui stok dalam transaksi database.
 - **ORD-02:** harga dan total bon dihitung ulang melalui RPC database; aplikasi hanya mengirim product ID dan jumlah.
 - **ORD-03:** bon draft tersimpan dengan snapshot harga, dapat diedit oleh kasir pembuat, dan tetap terlihat setelah terminal dimuat ulang.
 - **INV-01:** stok berkurang secara atomik setelah transaksi dibayar sesuai kebijakan yang disepakati.
@@ -79,11 +81,12 @@ Setiap tabel operasional membawa `store_id`; kebijakan Row Level Security membat
 - Dua pembayaran online simultan atau callback berulang tidak membuat order dibayar/ditagih ganda.
 - Ruang tidak dapat dipesan pada rentang waktu yang bertabrakan.
 - Kasir tidak dapat membaca atau mengubah data gerai lain.
+- Notifikasi Midtrans ganda tidak menggandakan perubahan stok atau pelunasan.
 - UI memiliki empty/loading/error/success states dan tetap bisa dipakai pada layar tablet.
 
 ## 10. Keputusan yang perlu disepakati sebelum transaksi nyata
 1. Negara/entitas merchant dan kanal Midtrans yang diaktifkan (QRIS, kartu, transfer, tunai); sandbox dan produksi.
-2. Definisi PB1/PPN, service charge, diskon member, pembulatan, dan apakah diskon mengurangi basis pajak.
+2. Definisi pajak, service charge, diskon member, pembulatan, dan apakah diskon mengurangi basis pajak.
 3. Aturan stok: kapan reservasi/penjualan mengurangi stok dan bagaimana void/refund mengembalikan stok.
 4. Durasi, harga, buffer, deposit, pembatalan, dan no-show untuk setiap ruang.
 5. Bentuk struk, perangkat/printer, nomor urut, retensi data, dan kebijakan refund.

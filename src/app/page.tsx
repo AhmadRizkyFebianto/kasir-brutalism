@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  Bell, BriefcaseBusiness, CalendarDays, Check, ChevronDown, CircleHelp,
+  Banknote, Bell, BriefcaseBusiness, CalendarDays, Check, ChevronDown, CircleHelp,
   Clock3, Coffee, Command, CreditCard, LayoutGrid, LockKeyhole, Minus, Plus,
   Printer, Search, ShoppingBag, Sparkles, Trash2, Utensils, X,
 } from "lucide-react";
@@ -13,7 +13,7 @@ import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabas
 
 type Product = { id: string; name: string; category: string; price: number; stock?: number; kind: "product" | "space"; image: string; tag: string; };
 type CartLine = { product: Product; qty: number };
-type SavedOrder = { id: string; code: string; subtotal: number; discount: number; tax: number; service: number; total: number; signature: string };
+type SavedOrder = { id: string; code: string; subtotal: number; discount: number; tax: number; service: number; total: number; signature: string; status?: string };
 type PricingRates = { tax: number; service: number; discount: number };
 
 const products: Product[] = [
@@ -42,6 +42,11 @@ export default function Home() {
   const [openOrders, setOpenOrders] = useState<SavedOrder[]>([]);
   const [orderMenuOpen, setOrderMenuOpen] = useState(false);
   const [orderBusy, setOrderBusy] = useState(false);
+  const [paymentOrder, setPaymentOrder] = useState<SavedOrder | null>(null);
+  const [paymentOpen, setPaymentOpen] = useState(false);
+  const [paymentBusy, setPaymentBusy] = useState(false);
+  const [snapUrl, setSnapUrl] = useState("");
+  const [paymentMessage, setPaymentMessage] = useState("");
   const requestId = useRef<string | null>(null);
   const requestSignature = useRef<string | null>(null);
   const [category, setCategory] = useState(categories[0]);
@@ -83,10 +88,10 @@ export default function Home() {
         if (settings) setRates({ tax: settings.tax_rate_bps, service: settings.service_rate_bps, discount: settings.discount_rate_bps });
         if (settingsError) setNotice(`Pengaturan biaya belum dimuat; total sementara memakai tarif nol: ${settingsError.message}`);
         const { data: orders } = await supabase.from("orders")
-          .select("id,order_code,subtotal,discount_amount,tax_amount,service_amount,total_amount")
-          .eq("store_id", storeId).eq("cashier_id", authUser.id).eq("status", "open")
+          .select("id,order_code,subtotal,discount_amount,tax_amount,service_amount,total_amount,status")
+          .eq("store_id", storeId).eq("cashier_id", authUser.id).in("status", ["open", "pending_payment"])
           .order("created_at", { ascending: false }).limit(10);
-        const savedOrders: SavedOrder[] = (orders ?? []).map((order) => ({ id: order.id, code: order.order_code, subtotal: order.subtotal, discount: order.discount_amount, tax: order.tax_amount, service: order.service_amount, total: order.total_amount, signature: "" }));
+        const savedOrders: SavedOrder[] = (orders ?? []).map((order) => ({ id: order.id, code: order.order_code, subtotal: order.subtotal, discount: order.discount_amount, tax: order.tax_amount, service: order.service_amount, total: order.total_amount, signature: "", status: order.status }));
         if (current) setOpenOrders(savedOrders);
         const openOrder = orders?.[0];
         if (openOrder) {
@@ -99,7 +104,7 @@ export default function Home() {
           const signature = signatureFor(restoredCart.map(({ product, qty }) => ({ product_id: product.id, quantity: qty })));
           if (current && restoredCart.length === (orderItems ?? []).length && restoredCart.length) {
             setCart(restoredCart);
-            setSavedOrder({ id: openOrder.id, code: openOrder.order_code, subtotal: openOrder.subtotal, discount: openOrder.discount_amount, tax: openOrder.tax_amount, service: openOrder.service_amount, total: openOrder.total_amount, signature });
+            setSavedOrder({ id: openOrder.id, code: openOrder.order_code, subtotal: openOrder.subtotal, discount: openOrder.discount_amount, tax: openOrder.tax_amount, service: openOrder.service_amount, total: openOrder.total_amount, signature, status: openOrder.status });
           } else if (current && (orderItems ?? []).length) {
             setNotice("Bon tersimpan berisi menu yang sedang tidak aktif. Pilih menu tersebut kembali atau hubungi admin.");
           }
@@ -148,11 +153,12 @@ export default function Home() {
   function update(id: string, delta: number) {
     setCart((current) => current.map((line) => line.product.id === id ? { ...line, qty: line.qty + delta } : line).filter((line) => line.qty > 0));
   }
-  async function saveOrder() {
-    if (cart.length === 0) { setNotice("Bon masih kosong. Tambahkan menu sebelum menyimpan."); return; }
-    if (!isSupabaseConfigured || !user || !storeId) { setNotice("Hubungkan Supabase dan masuk ke gerai untuk menyimpan bon."); return; }
+  async function saveOrder(): Promise<SavedOrder | null> {
+    if (cart.length === 0) { setNotice("Bon masih kosong. Tambahkan menu sebelum menyimpan."); return null; }
+    if (savedOrder?.status === "pending_payment") { setNotice("Bon sedang menunggu pembayaran. Periksa status atau lanjutkan pembayaran sebelum mengubah item."); return null; }
+    if (!isSupabaseConfigured || !user || !storeId) { setNotice("Hubungkan Supabase dan masuk ke gerai untuk menyimpan bon."); return null; }
     const supabase = createSupabaseBrowserClient();
-    if (!supabase) return;
+    if (!supabase) return null;
     setOrderBusy(true);
     const items = cart.map(({ product, qty }) => ({ product_id: product.id, quantity: qty }));
     const currentSignature = signatureFor(items);
@@ -161,17 +167,22 @@ export default function Home() {
       requestId.current ??= crypto.randomUUID();
       requestSignature.current = currentSignature;
     }
-    const response = savedOrder
-      ? await supabase.rpc("update_pos_order", { p_order_id: savedOrder.id, p_items: items })
-      : await supabase.rpc("create_pos_order", { p_store_id: storeId, p_request_id: requestId.current, p_items: items });
-    setOrderBusy(false);
-    if (response.error) { setNotice(`Bon gagal disimpan: ${response.error.message}`); return; }
-    const row = Array.isArray(response.data) ? response.data[0] : response.data;
-    if (!row) { setNotice("Supabase tidak mengembalikan bon."); return; }
-    const nextOrder = { id: row.order_id, code: row.order_code, subtotal: row.subtotal, discount: row.discount_amount, tax: row.tax_amount, service: row.service_amount, total: row.total_amount, signature: signatureFor(items) };
-    setSavedOrder(nextOrder);
-    setOpenOrders((current) => [nextOrder, ...current.filter((item) => item.id !== nextOrder.id)].slice(0, 10));
-    setNotice(`Bon ${nextOrder.code} tersimpan.`);
+    try {
+      const response = savedOrder
+        ? await supabase.rpc("update_pos_order", { p_order_id: savedOrder.id, p_items: items })
+        : await supabase.rpc("create_pos_order", { p_store_id: storeId, p_request_id: requestId.current, p_items: items });
+      if (response.error) { setNotice(`Bon gagal disimpan: ${response.error.message}`); return null; }
+      const row = Array.isArray(response.data) ? response.data[0] : response.data;
+      if (!row) { setNotice("Supabase tidak mengembalikan bon."); return null; }
+      const nextOrder = { id: row.order_id, code: row.order_code, subtotal: row.subtotal, discount: row.discount_amount, tax: row.tax_amount, service: row.service_amount, total: row.total_amount, signature: signatureFor(items) };
+      setSavedOrder(nextOrder);
+      setOpenOrders((current) => [nextOrder, ...current.filter((item) => item.id !== nextOrder.id)].slice(0, 10));
+      setNotice(`Bon ${nextOrder.code} tersimpan.`);
+      return nextOrder;
+    } catch {
+      setNotice("Bon belum dapat disimpan karena koneksi terputus.");
+      return null;
+    } finally { setOrderBusy(false); }
   }
   async function startNewOrder() {
     requestId.current = null;
@@ -205,11 +216,85 @@ export default function Home() {
     if (savedOrder?.id === order.id) { setSavedOrder(null); setCart([]); requestId.current = null; requestSignature.current = null; }
     setNotice(`Bon ${order.code} dibatalkan.`);
   }
+  async function checkout() {
+    let order = savedOrder;
+    if (!order || !savedCartCurrent) order = await saveOrder();
+    if (!order) return;
+    setPaymentOrder(order);
+    setPaymentMessage("");
+    setSnapUrl("");
+    setPaymentOpen(true);
+  }
+  async function payWithSnap() {
+    if (!paymentOrder) return;
+    setPaymentBusy(true);
+    setPaymentMessage("");
+    try {
+      const response = await fetch("/api/payments/snap", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderId: paymentOrder.id }) });
+      const result = await response.json().catch(() => ({})) as { redirectUrl?: string; error?: string };
+      if (!response.ok || !result.redirectUrl) { setPaymentMessage(result.error ?? "Pembayaran online belum dapat dimulai."); return; }
+      setSnapUrl(result.redirectUrl);
+      if (paymentOrder) {
+        setSavedOrder((current) => current?.id === paymentOrder.id ? { ...current, status: "pending_payment" } : current);
+        setOpenOrders((current) => current.map((item) => item.id === paymentOrder.id ? { ...item, status: "pending_payment" } : item));
+      }
+      await refreshCatalog();
+    } catch { setPaymentMessage("Tidak dapat terhubung ke server pembayaran."); }
+    finally { setPaymentBusy(false); }
+  }
+  async function payWithCash() {
+    if (!paymentOrder) return;
+    setPaymentBusy(true);
+    setPaymentMessage("");
+    try {
+      const response = await fetch("/api/payments/cash", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderId: paymentOrder.id }) });
+      const result = await response.json().catch(() => ({})) as { paid?: boolean; error?: string };
+      if (!response.ok || !result.paid) { setPaymentMessage(result.error ?? "Pembayaran tunai belum dapat dicatat."); return; }
+      completePayment("Pembayaran tunai berhasil dicatat.");
+    } catch { setPaymentMessage("Tidak dapat terhubung ke server pembayaran."); }
+    finally { setPaymentBusy(false); }
+  }
+  async function checkPaymentStatus() {
+    if (!paymentOrder) return;
+    setPaymentBusy(true);
+    try {
+      const response = await fetch("/api/payments/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderId: paymentOrder.id }) });
+      const result = await response.json().catch(() => ({})) as { orderStatus?: string; paymentStatus?: string; error?: string };
+      if (!response.ok) { setPaymentMessage(result.error ?? "Status pembayaran belum dapat diperiksa."); return; }
+      if (result.orderStatus === "paid") completePayment("Pembayaran berhasil dikonfirmasi Midtrans.");
+      else if (result.orderStatus === "paid_review") { setPaymentMessage("Pembayaran masuk, tetapi stok perlu pemeriksaan admin."); await refreshCatalog(); }
+      else if (result.orderStatus === "open") {
+        setSavedOrder((current) => current ? { ...current, status: "open" } : current);
+        setOpenOrders((current) => current.map((item) => item.id === paymentOrder.id ? { ...item, status: "open" } : item));
+        setPaymentMessage("Pembayaran gagal atau kedaluwarsa. Bon dapat dicoba kembali.");
+        await refreshCatalog();
+      }
+      else setPaymentMessage("Pembayaran masih menunggu konfirmasi. Coba periksa kembali sebentar lagi.");
+    } catch { setPaymentMessage("Tidak dapat menghubungi server status pembayaran."); }
+    finally { setPaymentBusy(false); }
+  }
+  function completePayment(message: string) {
+    if (paymentOrder) setOpenOrders((current) => current.filter((order) => order.id !== paymentOrder.id));
+    setSavedOrder(null);
+    setCart([]);
+    requestId.current = null;
+    requestSignature.current = null;
+    setPaymentOpen(false);
+    setPaymentOrder(null);
+    setSnapUrl("");
+    setNotice(message);
+    void refreshCatalog();
+  }
+  async function refreshCatalog() {
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase || !storeId) return;
+    const { data } = await supabase.from("products").select("id,name,category,kind,price,stock,image_url,tag")
+      .eq("store_id", storeId).eq("is_active", true).order("name");
+    if (data) setCatalog(data.map((row) => ({ id: row.id, name: row.name, category: row.category, price: row.price, stock: row.stock ?? undefined, kind: row.kind === "space" ? "space" : "product", image: row.image_url ?? "", tag: row.tag ?? "" })));
+  }
 
   if (isSupabaseConfigured && authLoading) return <main className="login-screen"><div className="login-card login-loading"><div className="login-icon"><LockKeyhole size={21} /></div><h1>Menyiapkan terminal…</h1><p>Memeriksa sesi kasir.</p></div></main>;
   if (isSupabaseConfigured && !user) return <main className="login-screen"><LoginForm onLogin={() => setNotice("Berhasil masuk.")} /></main>;
-  function checkout() { void saveOrder(); }
-
   return (
     <main className="pos-shell">
       <header className="topbar">
@@ -229,7 +314,7 @@ export default function Home() {
         </aside>
 
         <section className="catalog-area">
-          <div className="catalog-toolbar"><div className="search-row"><kbd>[F3]</kbd><div className="search-box"><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Cari menu, SKU kopi, atau kode meja..." /><button aria-label="search"><Search size={18} /></button></div></div><div className="quick-actions"><button onClick={() => void startNewOrder()}><b>F1:</b> Order Baru</button><button className="quick-primary" onClick={checkout} disabled={orderBusy}><b>F2:</b> {orderBusy ? "Menyimpan…" : "Simpan Bon"}</button><button onClick={() => void saveOrder()} disabled={orderBusy}><b>F4:</b> Tahan Bon</button></div></div>
+          <div className="catalog-toolbar"><div className="search-row"><kbd>[F3]</kbd><div className="search-box"><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Cari menu, SKU kopi, atau kode meja..." /><button aria-label="search"><Search size={18} /></button></div></div><div className="quick-actions"><button onClick={() => void startNewOrder()}><b>F1:</b> Order Baru</button><button className="quick-primary" onClick={checkout} disabled={orderBusy}><b>F2:</b> {orderBusy ? "Menyimpan…" : "Bayar / Checkout"}</button><button onClick={() => void saveOrder()} disabled={orderBusy}><b>F4:</b> Tahan Bon</button></div></div>
           <div className="filter-bar"><span className="filter-title">TAMPILKAN:</span><div className="filter-buttons">{["Semua", "Kopi & Minuman", "Makanan", "Sewa Space"].map((item) => <button key={item} onClick={() => setActiveFilter(item)} className={activeFilter === item ? "active" : ""}>{item === "Kopi & Minuman" && <Coffee size={13} />}{item === "Makanan" && <Utensils size={13} />}{item}</button>)}</div><div className="legend"><span><i className="status-dot green" />Ready</span><span><i className="status-dot yellow" />Booked</span><span><i className="status-dot red" />Terpakai</span></div></div>
           <div className="product-scroll"><div className="product-grid">{catalogLoading && <div className="empty-state">Memuat katalog dari Supabase…</div>}{filtered.map((product, index) => <motion.article key={product.id} className={`product-card ${product.kind === "space" ? "space-card" : ""}`} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.04, duration: 0.24 }} layout>
               <div className="product-photo" style={product.image ? { backgroundImage: `url("${product.image}")` } : undefined}><span className={`stock-tag ${product.kind === "space" ? "room-tag" : ""}`}>{product.kind === "space" ? <><span>RUANGAN</span><i className={`status-dot ${product.tag === "TERSEDIA" ? "green" : "red"}`} />{product.tag || "SPACE"}</> : <>STOK: {product.stock ?? "∞"}</>}</span>{product.tag === "BESTSELLER" && <span className="best-tag">BESTSELLER</span>}{product.tag === "TERPAKAI" && <span className="occupied-tag">● SEDANG DIPAKAI</span>}</div>
@@ -237,12 +322,27 @@ export default function Home() {
             </motion.article>)}{filtered.length === 0 && <div className="empty-state">Menu tidak ditemukan. Coba kata kunci lain.</div>}</div></div>
         </section>
 
-        <aside className="order-panel"><div className="order-heading"><h2><span>▤</span> PESANAN AKTIF</h2><button><i />DINING &amp; RESERVASI<ChevronDown size={12} /></button></div><button className="active-order" onClick={() => setOrderMenuOpen((open) => !open)}><span className="table-code">{savedOrder ? savedOrder.code.slice(-4) : "BON"}</span><span className="order-name"><b>{savedOrder ? savedOrder.code : "Bon belum disimpan"}</b><small>{savedOrder ? "Draft tersimpan · dapat diperbarui" : "Pilih atau mulai bon baru"}</small></span><span className="edit-order"><ChevronDown size={15} /></span></button>
+        <aside className="order-panel"><div className="order-heading"><h2><span>▤</span> PESANAN AKTIF</h2><button><i />DINING &amp; RESERVASI<ChevronDown size={12} /></button></div><button className="active-order" onClick={() => setOrderMenuOpen((open) => !open)}><span className="table-code">{savedOrder ? savedOrder.code.slice(-4) : "BON"}</span><span className="order-name"><b>{savedOrder ? savedOrder.code : "Bon belum disimpan"}</b><small>{savedOrder?.status === "pending_payment" ? "Menunggu pembayaran" : savedOrder ? "Draft tersimpan · dapat diperbarui" : "Pilih atau mulai bon baru"}</small></span><span className="edit-order"><ChevronDown size={15} /></span></button>
           <AnimatePresence>{orderMenuOpen && <motion.div className="open-order-menu" initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }}><div className="open-order-title">BON TERBUKA ({openOrders.length})</div>{openOrders.length ? openOrders.map((order) => <div className="open-order-row" key={order.id}><button onClick={() => void selectOpenOrder(order)}><b>{order.code}</b><span>Rp {money(order.total)}</span></button><button className="cancel-order" aria-label={`Batalkan ${order.code}`} onClick={() => void cancelOpenOrder(order)}><Trash2 size={14} /></button></div>) : <p>Belum ada bon tersimpan.</p>}</motion.div>}</AnimatePresence>
           <div className="cart-list"><AnimatePresence initial={false}>{cart.map((line) => <motion.div className="cart-line" key={line.product.id} layout initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}><div className="line-heading"><b>{line.product.name}</b><button onClick={() => update(line.product.id, -line.qty)} aria-label="hapus item"><Trash2 size={15} /></button></div>{line.product.kind === "space" && <small className="space-rental">Durasi: {line.qty} jam (13:00 - 15:00)</small>}<div className="line-bottom"><div className="qty-stepper"><button onClick={() => update(line.product.id, -1)} aria-label="kurangi"><Minus size={13} /></button><span>{line.qty}</span><button onClick={() => update(line.product.id, 1)} aria-label="tambah"><Plus size={13} /></button></div><b>Rp {money(line.product.price * line.qty)}</b></div></motion.div>)}</AnimatePresence>{cart.length === 0 && <div className="empty-cart">Bon masih kosong.<br />Pilih menu untuk mulai.</div>}</div>
-          <div className="payment-summary"><div><span>Subtotal ({cart.length} Item):</span><b>Rp {money(subtotal)}</b></div><div><span>Pajak ({rates.tax / 100}%):</span><b>Rp {money(tax)}</b></div><div><span>Biaya Layanan ({rates.service / 100}%):</span><b>Rp {money(service)}</b></div><div className="discount-row"><span>Diskon ({rates.discount / 100}%):</span><b>- Rp {money(discount)}</b></div><div className="grand-total"><span><small>TOTAL TAGIHAN {savedOrder ? "TERSIMPAN" : "SEMENTARA"}</small><b>IDR</b></span><strong>{money(total)}</strong></div><button className="pay-button" onClick={checkout} disabled={orderBusy}><CreditCard size={19} /> {savedOrder ? "SIMPAN PERUBAHAN [F2]" : "SIMPAN BON [F2]"}</button><div className="receipt-actions"><button onClick={() => void startNewOrder()}><BriefcaseBusiness size={14} />Order Baru</button><button disabled><Printer size={14} />Cetak Struk</button></div></div>
+          <div className="payment-summary"><div><span>Subtotal ({cart.length} Item):</span><b>Rp {money(subtotal)}</b></div><div><span>Pajak ({rates.tax / 100}%):</span><b>Rp {money(tax)}</b></div><div><span>Biaya Layanan ({rates.service / 100}%):</span><b>Rp {money(service)}</b></div><div className="discount-row"><span>Diskon ({rates.discount / 100}%):</span><b>- Rp {money(discount)}</b></div><div className="grand-total"><span><small>TOTAL TAGIHAN {savedOrder ? "TERSIMPAN" : "SEMENTARA"}</small><b>IDR</b></span><strong>{money(total)}</strong></div><button className="pay-button" onClick={checkout} disabled={orderBusy}><CreditCard size={19} /> {savedOrder && savedCartCurrent ? "BAYAR [F2]" : "SIMPAN & BAYAR [F2]"}</button><div className="receipt-actions"><button onClick={() => void startNewOrder()}><BriefcaseBusiness size={14} />Order Baru</button><button disabled><Printer size={14} />Cetak Struk</button></div></div>
         </aside>
       </div>
+      <AnimatePresence>{paymentOpen && <motion.div className="modal-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+        <motion.section className="payment-modal" role="dialog" aria-modal="true" aria-labelledby="payment-title" initial={{ y: 14, scale: .98 }} animate={{ y: 0, scale: 1 }} exit={{ y: 10, opacity: 0 }}>
+          <button className="modal-close" aria-label="Tutup pembayaran" onClick={() => setPaymentOpen(false)}><X size={18} /></button>
+          <div className="modal-eyebrow">{paymentOrder?.code ?? "CHECKOUT"}</div>
+          <h2 id="payment-title">Pilih metode pembayaran</h2>
+          <p>Total tagihan <strong>Rp {money(paymentOrder?.total ?? total)}</strong></p>
+          <button className="method-button" onClick={() => void payWithSnap()} disabled={paymentBusy}><CreditCard size={19} /><span><b>QRIS / pembayaran online</b><small>Dibuat aman melalui halaman Midtrans</small></span><ChevronDown size={16} /></button>
+          <button className="method-button" onClick={() => void payWithCash()} disabled={paymentBusy || paymentOrder?.status === "pending_payment"}><Banknote size={19} /><span><b>Tunai</b><small>{paymentOrder?.status === "pending_payment" ? "Selesaikan atau batalkan pembayaran online dahulu" : "Konfirmasi pembayaran di kasir"}</small></span><ChevronDown size={16} /></button>
+          {paymentBusy && <div className="payment-progress"><span className="spin-dot" />Memproses pembayaran…</div>}
+          {snapUrl && <a className="snap-link" href={snapUrl} target="_blank" rel="noreferrer">Buka halaman pembayaran Midtrans ↗</a>}
+          {snapUrl && <button className="check-status" onClick={() => void checkPaymentStatus()} disabled={paymentBusy}>Periksa status pembayaran</button>}
+          {paymentMessage && <div className="payment-message" role="status">{paymentMessage}</div>}
+          <small className="payment-legal">Kasir menetapkan lunas setelah konfirmasi pembayaran berhasil.</small>
+        </motion.section>
+      </motion.div>}</AnimatePresence>
       <AnimatePresence>{notice && <motion.div className="toast" initial={{ y: 30, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 20, opacity: 0 }}><Check size={17} />{notice}<button onClick={() => setNotice("")}><X size={15} /></button></motion.div>}</AnimatePresence>
     </main>
   );

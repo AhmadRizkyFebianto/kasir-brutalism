@@ -36,6 +36,7 @@ Outline utama 2–3 px dengan shadow offset 2–3 px tanpa blur. Kartu konten me
 - Kartu katalog: foto, stok/status ruang, kategori, nama, harga, aksi tambah atau pesan.
 - Baris bon: nama, opsi hapus, stepper jumlah, subtotal baris. Untuk space tampil durasi/jadwal.
 - Kartu meja: kode, kapasitas, dan status berwarna plus teks agar warna bukan satu-satunya pembeda.
+- Modal reservasi ruang: waktu mulai, durasi, jumlah tamu, nama pemesan, serta estimasi biaya; bon hanya menerima satu reservasi ruang pada irisan awal.
 - Dialog checkout: pilihan QRIS/online via Midtrans atau tunai, tautan Snap, pemeriksaan status, dan pesan kesalahan yang tetap menampilkan konteks bon.
 - Keadaan perlu didesain lanjut: kosong, loading/skeleton, stok habis, ruang bentrok, pembayaran pending/gagal/berhasil, koneksi offline, shift ditutup.
 

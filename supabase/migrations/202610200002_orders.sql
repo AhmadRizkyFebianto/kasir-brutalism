@@ -177,7 +177,7 @@ begin
     insert into public.orders (id, store_id, order_code, cashier_id, request_id, subtotal,
       discount_amount, tax_amount, service_amount, total_amount, customer_name, table_code)
     values (v_order_id, p_store_id, v_order_code, v_user_id, p_request_id, v_subtotal,
-      v_discount, v_tax, v_service, v_total, nullif(trim(p_customer_name), ''), nullif(trim(p_table_code), ''));
+    v_discount, v_tax, v_service, v_total, nullif(trim(p_customer_name), ''), null);
   exception when unique_violation then
     select * into v_existing from public.orders o
     where o.store_id = p_store_id and o.request_id = p_request_id;
@@ -280,7 +280,7 @@ begin
 
   update public.orders set subtotal = v_subtotal, discount_amount = v_discount, tax_amount = v_tax,
     service_amount = v_service, total_amount = v_total,
-    customer_name = nullif(trim(p_customer_name), ''), table_code = nullif(trim(p_table_code), ''), updated_at = now()
+    customer_name = nullif(trim(p_customer_name), ''), updated_at = now()
   where id = p_order_id;
   delete from public.order_items where order_items.order_id = p_order_id;
   for v_item in select value from jsonb_array_elements(p_items)

@@ -13,8 +13,11 @@ import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabas
 
 type Product = { id: string; name: string; category: string; price: number; stock?: number; kind: "product" | "space"; image: string; tag: string; };
 type CartLine = { product: Product; qty: number };
-type SavedOrder = { id: string; code: string; subtotal: number; discount: number; tax: number; service: number; total: number; signature: string; status?: string };
+type SavedOrder = { id: string; code: string; subtotal: number; discount: number; tax: number; service: number; total: number; signature: string; status?: string; tableCode?: string | null };
 type PricingRates = { tax: number; service: number; discount: number };
+type StoreTable = { code: string; desc: string; area: string; capacity: number; status: "available" | "occupied" | "closed" };
+type SpaceRecord = { id: string; productId: string; code: string; capacity: number };
+type SpaceReservation = { id: string; spaceId: string; productId: string; startsAt: string; endsAt: string; guestCount: number; customerName?: string; orderId?: string; holdExpiresAt?: string };
 
 const products: Product[] = [
   { id: "demo-1", name: "Kopi Susu Gula Aren Hub", category: "Kopi • Dingin", price: 22000, stock: 48, kind: "product", image: "https://images.unsplash.com/photo-1517701604599-bb29b565090c?auto=format&fit=crop&w=700&q=85", tag: "BESTSELLER" },
@@ -30,6 +33,12 @@ const products: Product[] = [
 const money = (n: number) => new Intl.NumberFormat("id-ID").format(n);
 const categories = ["Semua Menu & Space", "Kopi Nusantara", "Non-Kopi & Teh", "Makanan Berat", "Snack & Pastry", "Sewa Ruang / Space"];
 const signatureFor = (items: { product_id: string; quantity: number }[]) => JSON.stringify([...items].sort((a, b) => a.product_id.localeCompare(b.product_id)));
+const demoTables: StoreTable[] = [
+  { code: "T-04", desc: "Table Indoor #04", area: "Indoor", capacity: 4, status: "available" },
+  { code: "VIP-A", desc: "VIP Room A", area: "Private Room", capacity: 8, status: "occupied" },
+  { code: "POD-2", desc: "Focus Pod 02", area: "Booth", capacity: 2, status: "available" },
+  { code: "OUT-1", desc: "Garden #01", area: "Garden", capacity: 6, status: "available" },
+];
 
 export default function Home() {
   const [authLoading, setAuthLoading] = useState(isSupabaseConfigured);
@@ -41,6 +50,16 @@ export default function Home() {
   const [savedOrder, setSavedOrder] = useState<SavedOrder | null>(null);
   const [openOrders, setOpenOrders] = useState<SavedOrder[]>([]);
   const [orderMenuOpen, setOrderMenuOpen] = useState(false);
+  const [tables, setTables] = useState<StoreTable[]>(isSupabaseConfigured ? [] : demoTables);
+  const [spaces, setSpaces] = useState<SpaceRecord[]>([]);
+  const [selectedTable, setSelectedTable] = useState<string | null>(null);
+  const [activeReservation, setActiveReservation] = useState<SpaceReservation | null>(null);
+  const [bookingProduct, setBookingProduct] = useState<Product | null>(null);
+  const [bookingStart, setBookingStart] = useState("");
+  const [bookingDuration, setBookingDuration] = useState(2);
+  const [bookingGuestCount, setBookingGuestCount] = useState(1);
+  const [bookingCustomerName, setBookingCustomerName] = useState("");
+  const [bookingBusy, setBookingBusy] = useState(false);
   const [orderBusy, setOrderBusy] = useState(false);
   const [paymentOrder, setPaymentOrder] = useState<SavedOrder | null>(null);
   const [paymentOpen, setPaymentOpen] = useState(false);
@@ -74,24 +93,35 @@ export default function Home() {
         storeId = membership.store_id;
       }
       if (current) setStoreId(storeId);
-      const [{ data: store }, { data, error }, { data: settings, error: settingsError }] = await Promise.all([
+      const [{ data: store }, { data, error }, { data: settings, error: settingsError }, { data: spaces }, { data: tableData }, { data: reservations }] = await Promise.all([
         supabase.from("stores").select("name").eq("id", storeId).maybeSingle(),
         supabase.from("products").select("id,name,category,kind,price,stock,image_url,tag").eq("store_id", storeId).eq("is_active", true).order("name"),
         supabase.from("store_settings").select("tax_rate_bps,service_rate_bps,discount_rate_bps").eq("store_id", storeId).maybeSingle(),
+        supabase.from("store_spaces").select("id,product_id,code,capacity").eq("store_id", storeId).eq("is_active", true),
+        supabase.from("store_tables").select("code,label,area,capacity,status").eq("store_id", storeId).eq("is_active", true).order("code"),
+        supabase.from("space_reservations").select("space_id,status,starts_at,ends_at,hold_expires_at").eq("store_id", storeId).in("status", ["held", "reserved", "checked_in"]),
       ]);
       if (!current) return;
       if (error) setNotice(`Katalog gagal dimuat: ${error.message}`);
       else {
-        const nextCatalog: Product[] = (data ?? []).map((row) => ({ id: row.id, name: row.name, category: row.category, price: row.price, stock: row.stock ?? undefined, kind: row.kind === "space" ? "space" : "product", image: row.image_url ?? "", tag: row.tag ?? "" }));
+        const now = Date.now();
+        const nextCatalog: Product[] = (data ?? []).map((row) => {
+          const space = (spaces ?? []).find((entry) => entry.product_id === row.id);
+          const bookings = (reservations ?? []).filter((entry) => entry.space_id === space?.id && new Date(entry.ends_at).getTime() > now && (entry.status !== "held" || new Date(entry.hold_expires_at).getTime() > now));
+          const tag = row.kind === "space" ? bookings.some((entry) => new Date(entry.starts_at).getTime() <= now) ? "TERPAKAI" : bookings.length ? "BOOKED" : "TERSEDIA" : row.tag ?? "";
+          return { id: row.id, name: row.name, category: row.category, price: row.price, stock: row.stock ?? undefined, kind: row.kind === "space" ? "space" : "product", image: row.image_url ?? "", tag };
+        });
         setCatalog(nextCatalog);
         setStoreName(store?.name.toLocaleUpperCase("id-ID") ?? "KOPI & SPACE");
+        setTables((tableData ?? []).map((table) => ({ code: table.code, desc: table.label, area: table.area, capacity: table.capacity, status: table.status === "occupied" || table.status === "closed" ? table.status : "available" })));
+        setSpaces((spaces ?? []).map((space) => ({ id: space.id, productId: space.product_id, code: space.code, capacity: space.capacity })));
         if (settings) setRates({ tax: settings.tax_rate_bps, service: settings.service_rate_bps, discount: settings.discount_rate_bps });
         if (settingsError) setNotice(`Pengaturan biaya belum dimuat; total sementara memakai tarif nol: ${settingsError.message}`);
         const { data: orders } = await supabase.from("orders")
-          .select("id,order_code,subtotal,discount_amount,tax_amount,service_amount,total_amount,status")
+          .select("id,order_code,subtotal,discount_amount,tax_amount,service_amount,total_amount,status,table_code")
           .eq("store_id", storeId).eq("cashier_id", authUser.id).in("status", ["open", "pending_payment"])
           .order("created_at", { ascending: false }).limit(10);
-        const savedOrders: SavedOrder[] = (orders ?? []).map((order) => ({ id: order.id, code: order.order_code, subtotal: order.subtotal, discount: order.discount_amount, tax: order.tax_amount, service: order.service_amount, total: order.total_amount, signature: "", status: order.status }));
+        const savedOrders: SavedOrder[] = (orders ?? []).map((order) => ({ id: order.id, code: order.order_code, subtotal: order.subtotal, discount: order.discount_amount, tax: order.tax_amount, service: order.service_amount, total: order.total_amount, signature: "", status: order.status, tableCode: order.table_code }));
         if (current) setOpenOrders(savedOrders);
         const openOrder = orders?.[0];
         if (openOrder) {
@@ -104,7 +134,12 @@ export default function Home() {
           const signature = signatureFor(restoredCart.map(({ product, qty }) => ({ product_id: product.id, quantity: qty })));
           if (current && restoredCart.length === (orderItems ?? []).length && restoredCart.length) {
             setCart(restoredCart);
-            setSavedOrder({ id: openOrder.id, code: openOrder.order_code, subtotal: openOrder.subtotal, discount: openOrder.discount_amount, tax: openOrder.tax_amount, service: openOrder.service_amount, total: openOrder.total_amount, signature, status: openOrder.status });
+            setSavedOrder({ id: openOrder.id, code: openOrder.order_code, subtotal: openOrder.subtotal, discount: openOrder.discount_amount, tax: openOrder.tax_amount, service: openOrder.service_amount, total: openOrder.total_amount, signature, status: openOrder.status, tableCode: openOrder.table_code });
+            setSelectedTable(openOrder.table_code);
+            const { data: reservation } = await supabase.from("space_reservations").select("id,space_id,customer_name,guest_count,starts_at,ends_at,hold_expires_at")
+              .eq("store_id", storeId).eq("order_id", openOrder.id).eq("status", "reserved").limit(1).maybeSingle();
+            const reservedSpace = (spaces ?? []).find((space) => space.id === reservation?.space_id);
+            if (reservation && reservedSpace) setActiveReservation({ id: reservation.id, spaceId: reservation.space_id, productId: reservedSpace.product_id, startsAt: reservation.starts_at, endsAt: reservation.ends_at, guestCount: reservation.guest_count, customerName: reservation.customer_name ?? undefined, orderId: openOrder.id, holdExpiresAt: reservation.hold_expires_at });
           } else if (current && (orderItems ?? []).length) {
             setNotice("Bon tersimpan berisi menu yang sedang tidak aktif. Pilih menu tersebut kembali atau hubungi admin.");
           }
@@ -124,7 +159,7 @@ export default function Home() {
       if (!current) return;
       const activeUser = session?.user ?? null;
       setUser(activeUser);
-      if (!activeUser) { setCatalog([]); setCart([]); setSavedOrder(null); setOpenOrders([]); requestId.current = null; requestSignature.current = null; setAuthLoading(false); }
+      if (!activeUser) { setCatalog([]); setCart([]); setSavedOrder(null); setOpenOrders([]); setSpaces([]); setTables([]); setActiveReservation(null); setSelectedTable(null); requestId.current = null; requestSignature.current = null; setAuthLoading(false); }
       else window.setTimeout(() => { if (current) void loadCatalog(activeUser); }, 0);
     });
     return () => { current = false; subscription.unsubscribe(); };
@@ -156,6 +191,11 @@ export default function Home() {
   async function saveOrder(): Promise<SavedOrder | null> {
     if (cart.length === 0) { setNotice("Bon masih kosong. Tambahkan menu sebelum menyimpan."); return null; }
     if (savedOrder?.status === "pending_payment") { setNotice("Bon sedang menunggu pembayaran. Periksa status atau lanjutkan pembayaran sebelum mengubah item."); return null; }
+    const spaceLines = cart.filter((line) => line.product.kind === "space");
+    if (spaceLines.length > 1 || (spaceLines.length > 0 && (!activeReservation || activeReservation.productId !== spaceLines[0].product.id || (activeReservation.orderId && activeReservation.orderId !== savedOrder?.id)))) {
+      setNotice("Buat reservasi space yang cocok sebelum menyimpan bon.");
+      return null;
+    }
     if (!isSupabaseConfigured || !user || !storeId) { setNotice("Hubungkan Supabase dan masuk ke gerai untuk menyimpan bon."); return null; }
     const supabase = createSupabaseBrowserClient();
     if (!supabase) return null;
@@ -169,14 +209,26 @@ export default function Home() {
     }
     try {
       const response = savedOrder
-        ? await supabase.rpc("update_pos_order", { p_order_id: savedOrder.id, p_items: items })
-        : await supabase.rpc("create_pos_order", { p_store_id: storeId, p_request_id: requestId.current, p_items: items });
+        ? await supabase.rpc("update_pos_order_draft", { p_order_id: savedOrder.id, p_items: items })
+        : await supabase.rpc("create_pos_order_draft", { p_store_id: storeId, p_request_id: requestId.current, p_items: items });
       if (response.error) { setNotice(`Bon gagal disimpan: ${response.error.message}`); return null; }
       const row = Array.isArray(response.data) ? response.data[0] : response.data;
       if (!row) { setNotice("Supabase tidak mengembalikan bon."); return null; }
-      const nextOrder = { id: row.order_id, code: row.order_code, subtotal: row.subtotal, discount: row.discount_amount, tax: row.tax_amount, service: row.service_amount, total: row.total_amount, signature: signatureFor(items) };
+      const nextOrder = { id: row.order_id, code: row.order_code, subtotal: row.subtotal, discount: row.discount_amount, tax: row.tax_amount, service: row.service_amount, total: row.total_amount, signature: signatureFor(items), tableCode: savedOrder?.tableCode ?? null, status: "open" };
       setSavedOrder(nextOrder);
       setOpenOrders((current) => [nextOrder, ...current.filter((item) => item.id !== nextOrder.id)].slice(0, 10));
+      if (selectedTable) {
+        const { error: tableError } = await supabase.rpc("assign_order_table", { p_order_id: nextOrder.id, p_table_code: selectedTable });
+        if (tableError) { setNotice(`Bon tersimpan, tetapi meja belum terpasang: ${tableError.message}`); return null; }
+        setTables((current) => current.map((table) => table.code === selectedTable ? { ...table, status: "occupied" } : table.code === savedOrder?.tableCode ? { ...table, status: "available" } : table));
+        setSavedOrder((current) => current ? { ...current, tableCode: selectedTable } : current);
+        setOpenOrders((current) => current.map((item) => item.id === nextOrder.id ? { ...item, tableCode: selectedTable } : item));
+      }
+      if (activeReservation && spaceLines.length > 0) {
+        const { error: reservationError } = await supabase.rpc("attach_space_reservation", { p_order_id: nextOrder.id, p_reservation_id: activeReservation.id });
+        if (reservationError) { setNotice(`Bon tersimpan, tetapi reservasi belum terpasang: ${reservationError.message}`); return null; }
+        setActiveReservation((current) => current ? { ...current, orderId: nextOrder.id } : current);
+      }
       setNotice(`Bon ${nextOrder.code} tersimpan.`);
       return nextOrder;
     } catch {
@@ -184,11 +236,17 @@ export default function Home() {
       return null;
     } finally { setOrderBusy(false); }
   }
-  async function startNewOrder() {
+  async function startNewOrder(defaultTable?: string) {
+    if (activeReservation && !activeReservation.orderId) {
+      const supabase = createSupabaseBrowserClient();
+      if (supabase) await supabase.rpc("cancel_space_reservation", { p_reservation_id: activeReservation.id });
+    }
     requestId.current = null;
     requestSignature.current = null;
     setSavedOrder(null);
     setCart([]);
+    setActiveReservation(null);
+    setSelectedTable(defaultTable ?? null);
     setNotice("Bon baru siap.");
   }
   async function selectOpenOrder(order: SavedOrder) {
@@ -205,6 +263,11 @@ export default function Home() {
     const nextSignature = signatureFor(restored.map(({ product, qty }) => ({ product_id: product.id, quantity: qty })));
     setCart(restored);
     setSavedOrder({ ...order, signature: nextSignature });
+    setSelectedTable(order.tableCode ?? null);
+    const { data: reservation } = await supabase.from("space_reservations").select("id,space_id,customer_name,guest_count,starts_at,ends_at,hold_expires_at")
+      .eq("store_id", storeId).eq("order_id", order.id).eq("status", "reserved").limit(1).maybeSingle();
+    const reservedSpace = spaces.find((space) => space.id === reservation?.space_id);
+    setActiveReservation(reservation && reservedSpace ? { id: reservation.id, spaceId: reservation.space_id, productId: reservedSpace.productId, startsAt: reservation.starts_at, endsAt: reservation.ends_at, guestCount: reservation.guest_count, customerName: reservation.customer_name ?? undefined, orderId: order.id, holdExpiresAt: reservation.hold_expires_at } : null);
     setOrderMenuOpen(false);
   }
   async function cancelOpenOrder(order: SavedOrder) {
@@ -213,8 +276,69 @@ export default function Home() {
     const { error } = await supabase.rpc("cancel_pos_order", { p_order_id: order.id });
     if (error) { setNotice(`Bon gagal dibatalkan: ${error.message}`); return; }
     setOpenOrders((current) => current.filter((item) => item.id !== order.id));
-    if (savedOrder?.id === order.id) { setSavedOrder(null); setCart([]); requestId.current = null; requestSignature.current = null; }
+    if (savedOrder?.id === order.id) { setSavedOrder(null); setCart([]); setActiveReservation(null); setSelectedTable(null); requestId.current = null; requestSignature.current = null; }
+    if (order.tableCode) setTables((current) => current.map((table) => table.code === order.tableCode ? { ...table, status: "available" } : table));
     setNotice(`Bon ${order.code} dibatalkan.`);
+  }
+  async function chooseTable(table: StoreTable) {
+    if (table.status !== "available" && selectedTable !== table.code) { setNotice("Meja ini sedang dipakai atau ditutup."); return; }
+    if (savedOrder?.status === "pending_payment") { setNotice("Meja tidak dapat diganti selama pembayaran menunggu konfirmasi."); return; }
+    if (savedOrder && isSupabaseConfigured) {
+      const supabase = createSupabaseBrowserClient();
+      if (!supabase) return;
+      const { error } = await supabase.rpc("assign_order_table", { p_order_id: savedOrder.id, p_table_code: table.code });
+      if (error) { setNotice(`Meja gagal dipilih: ${error.message}`); return; }
+      if (savedOrder.tableCode) setTables((current) => current.map((item) => item.code === savedOrder.tableCode ? { ...item, status: "available" } : item));
+      setSavedOrder((current) => current ? { ...current, tableCode: table.code } : current);
+      setOpenOrders((current) => current.map((item) => item.id === savedOrder.id ? { ...item, tableCode: table.code } : item));
+      setTables((current) => current.map((item) => item.code === table.code ? { ...item, status: "occupied" } : item));
+    }
+    setSelectedTable(table.code);
+  }
+  async function openSpaceBooking(product: Product) {
+    if (!isSupabaseConfigured || !user || !storeId) { setNotice("Reservasi ruang membutuhkan koneksi Supabase."); return; }
+    if (!spaces.some((space) => space.productId === product.id)) { setNotice("Ruang ini belum disiapkan sebagai space reservasi."); return; }
+    if (activeReservation?.productId === product.id) {
+      const holdExpired = activeReservation.holdExpiresAt && activeReservation.holdExpiresAt !== "infinity" && new Date(activeReservation.holdExpiresAt).getTime() <= Date.now();
+      if (!holdExpired || activeReservation.orderId) { setNotice("Reservasi ruang ini sudah masuk ke bon aktif."); return; }
+      setActiveReservation(null);
+    }
+    const currentSpace = cart.find((line) => line.product.kind === "space");
+    if (currentSpace && currentSpace.product.id !== product.id) { setNotice("Satu bon hanya dapat menampung satu reservasi space untuk saat ini."); return; }
+    const start = new Date();
+    start.setHours(start.getHours() + 1, 0, 0, 0);
+    const localStart = new Date(start.getTime() - start.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    setBookingStart(localStart);
+    setBookingDuration(2);
+    setBookingGuestCount(1);
+    setBookingCustomerName("");
+    setBookingProduct(product);
+  }
+  async function confirmSpaceBooking() {
+    if (!bookingProduct || !bookingStart || !storeId) return;
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase) return;
+    const startsAt = new Date(bookingStart);
+    const endsAt = new Date(startsAt.getTime() + bookingDuration * 60 * 60 * 1000);
+    if (startsAt.getTime() < Date.now()) { setNotice("Waktu mulai harus di masa depan."); return; }
+    setBookingBusy(true);
+    const { data, error } = await supabase.rpc("create_space_reservation", {
+      p_store_id: storeId, p_product_id: bookingProduct.id, p_starts_at: startsAt.toISOString(), p_ends_at: endsAt.toISOString(),
+      p_customer_name: bookingCustomerName, p_guest_count: bookingGuestCount,
+    });
+    setBookingBusy(false);
+    if (error) { setNotice(`Reservasi gagal: ${error.message}`); return; }
+    const reservation = Array.isArray(data) ? data[0] : data;
+    if (!reservation) { setNotice("Supabase tidak mengembalikan reservasi."); return; }
+    if (activeReservation && !activeReservation.orderId) {
+      await supabase.rpc("cancel_space_reservation", { p_reservation_id: activeReservation.id });
+    }
+    const space = spaces.find((item) => item.productId === bookingProduct.id);
+    setActiveReservation({ id: reservation.reservation_id, spaceId: space?.id ?? "", productId: bookingProduct.id, startsAt: reservation.starts_at, endsAt: reservation.ends_at, guestCount: bookingGuestCount, customerName: bookingCustomerName || undefined, holdExpiresAt: reservation.hold_expires_at });
+    setCart((current) => [...current.filter((line) => line.product.id !== bookingProduct.id), { product: bookingProduct, qty: bookingDuration }]);
+    setBookingProduct(null);
+    setNotice(`Reservasi ${reservation.space_code} dibuat. Simpan bon dalam 15 menit untuk mengikat ruang.`);
+    void refreshCatalog();
   }
   async function checkout() {
     let order = savedOrder;
@@ -277,6 +401,8 @@ export default function Home() {
     if (paymentOrder) setOpenOrders((current) => current.filter((order) => order.id !== paymentOrder.id));
     setSavedOrder(null);
     setCart([]);
+    setSelectedTable(null);
+    setActiveReservation(null);
     requestId.current = null;
     requestSignature.current = null;
     setPaymentOpen(false);
@@ -284,13 +410,29 @@ export default function Home() {
     setSnapUrl("");
     setNotice(message);
     void refreshCatalog();
+    void refreshTables();
   }
   async function refreshCatalog() {
     const supabase = createSupabaseBrowserClient();
     if (!supabase || !storeId) return;
-    const { data } = await supabase.from("products").select("id,name,category,kind,price,stock,image_url,tag")
-      .eq("store_id", storeId).eq("is_active", true).order("name");
-    if (data) setCatalog(data.map((row) => ({ id: row.id, name: row.name, category: row.category, price: row.price, stock: row.stock ?? undefined, kind: row.kind === "space" ? "space" : "product", image: row.image_url ?? "", tag: row.tag ?? "" })));
+    const [{ data }, { data: spaceRows }, { data: reservations }] = await Promise.all([
+      supabase.from("products").select("id,name,category,kind,price,stock,image_url,tag").eq("store_id", storeId).eq("is_active", true).order("name"),
+      supabase.from("store_spaces").select("id,product_id,code,capacity").eq("store_id", storeId).eq("is_active", true),
+      supabase.from("space_reservations").select("space_id,status,starts_at,ends_at,hold_expires_at").eq("store_id", storeId).in("status", ["held", "reserved", "checked_in"]),
+    ]);
+    const now = Date.now();
+    if (data) setCatalog(data.map((row) => {
+      const space = (spaceRows ?? []).find((entry) => entry.product_id === row.id);
+      const bookings = (reservations ?? []).filter((entry) => entry.space_id === space?.id && new Date(entry.ends_at).getTime() > now && (entry.status !== "held" || new Date(entry.hold_expires_at).getTime() > now));
+      const tag = row.kind === "space" ? bookings.some((entry) => new Date(entry.starts_at).getTime() <= now) ? "TERPAKAI" : bookings.length ? "BOOKED" : "TERSEDIA" : row.tag ?? "";
+      return { id: row.id, name: row.name, category: row.category, price: row.price, stock: row.stock ?? undefined, kind: row.kind === "space" ? "space" as const : "product" as const, image: row.image_url ?? "", tag };
+    }));
+  }
+  async function refreshTables() {
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase || !storeId) return;
+    const { data } = await supabase.from("store_tables").select("code,label,area,capacity,status").eq("store_id", storeId).eq("is_active", true).order("code");
+    if (data) setTables(data.map((table) => ({ code: table.code, desc: table.label, area: table.area, capacity: table.capacity, status: table.status === "occupied" || table.status === "closed" ? table.status : "available" })));
   }
 
   if (isSupabaseConfigured && authLoading) return <main className="login-screen"><div className="login-card login-loading"><div className="login-icon"><LockKeyhole size={21} /></div><h1>Menyiapkan terminal…</h1><p>Memeriksa sesi kasir.</p></div></main>;
@@ -305,11 +447,11 @@ export default function Home() {
       <div className="workspace">
         <aside className="left-rail">
           <section className="store-summary"><div><b>{storeName}</b><small>{user?.email ?? "Terminal #01 - Kasir"}</small></div><span className="live-badge">{isSupabaseConfigured ? "LIVE" : "DEMO"}</span></section>
-          <button className="new-table"><Plus size={17} />Buka Meja Baru</button>
+          <button className="new-table" onClick={() => void startNewOrder(tables.find((table) => table.status === "available")?.code)}><Plus size={17} />Buka Meja Baru</button>
           <section className="categories"><div className="section-label"><span>KATALOG &amp; AREA</span><span>[ESC]</span></div>
             {categories.map((name, i) => <button key={name} onClick={() => setCategory(name)} className={`category-item ${category === name ? "selected" : ""} ${i === 5 ? "space-category" : ""}`}><span className="category-icon">{i === 0 ? <LayoutGrid size={16} /> : i === 1 ? <Coffee size={16} /> : i === 2 ? <Utensils size={16} /> : i === 5 ? <BriefcaseBusiness size={16} /> : <ShoppingBag size={16} />}</span><span>{name}</span>{(i === 0 || i === 5) && <em>{i === 0 ? "18" : "4"}</em>}</button>)}
           </section>
-          <section className="tables"><div className="section-label"><span>DENAH MEJA CEPAT</span><b>12/16 KOSONG</b></div><div className="table-grid">{[{ code: "T-04", desc: "Indoor (4p)", status: "Tersedia", tone: "green" }, { code: "VIP-A", desc: "Room (8p)", status: "Terisi", tone: "red" }, { code: "POD-2", desc: "Booth (2p)", status: "14:00", tone: "yellow" }, { code: "OUT-1", desc: "Garden (6p)", status: "Tersedia", tone: "green" }].map((table) => <button className="table-tile" key={table.code}><span className={`status-dot ${table.tone}`} /><b>{table.code}</b><small>{table.desc}</small><span className={`table-status ${table.tone}`}><i className={`status-dot ${table.tone}`} />{table.status}</span></button>)}</div></section>
+          <section className="tables"><div className="section-label"><span>DENAH MEJA CEPAT</span><b>{tables.filter((table) => table.status === "available").length}/{tables.length} KOSONG</b></div><div className="table-grid">{tables.map((table) => { const tone = table.status === "available" ? "green" : table.status === "closed" ? "yellow" : "red"; return <button className={`table-tile ${selectedTable === table.code ? "table-selected" : ""}`} key={table.code} onClick={() => void chooseTable(table)}><span className={`status-dot ${tone}`} /><b>{table.code}</b><small>{table.area} ({table.capacity}p)</small><span className={`table-status ${tone}`}><i className={`status-dot ${tone}`} />{table.status === "available" ? "Tersedia" : table.status === "closed" ? "Ditutup" : "Terisi"}</span></button>; })}</div></section>
           <button className="help-btn"><CircleHelp size={16} />Bantuan &amp; SOP<span>v2.4</span></button>
         </aside>
 
@@ -317,17 +459,31 @@ export default function Home() {
           <div className="catalog-toolbar"><div className="search-row"><kbd>[F3]</kbd><div className="search-box"><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Cari menu, SKU kopi, atau kode meja..." /><button aria-label="search"><Search size={18} /></button></div></div><div className="quick-actions"><button onClick={() => void startNewOrder()}><b>F1:</b> Order Baru</button><button className="quick-primary" onClick={checkout} disabled={orderBusy}><b>F2:</b> {orderBusy ? "Menyimpan…" : "Bayar / Checkout"}</button><button onClick={() => void saveOrder()} disabled={orderBusy}><b>F4:</b> Tahan Bon</button></div></div>
           <div className="filter-bar"><span className="filter-title">TAMPILKAN:</span><div className="filter-buttons">{["Semua", "Kopi & Minuman", "Makanan", "Sewa Space"].map((item) => <button key={item} onClick={() => setActiveFilter(item)} className={activeFilter === item ? "active" : ""}>{item === "Kopi & Minuman" && <Coffee size={13} />}{item === "Makanan" && <Utensils size={13} />}{item}</button>)}</div><div className="legend"><span><i className="status-dot green" />Ready</span><span><i className="status-dot yellow" />Booked</span><span><i className="status-dot red" />Terpakai</span></div></div>
           <div className="product-scroll"><div className="product-grid">{catalogLoading && <div className="empty-state">Memuat katalog dari Supabase…</div>}{filtered.map((product, index) => <motion.article key={product.id} className={`product-card ${product.kind === "space" ? "space-card" : ""}`} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.04, duration: 0.24 }} layout>
-              <div className="product-photo" style={product.image ? { backgroundImage: `url("${product.image}")` } : undefined}><span className={`stock-tag ${product.kind === "space" ? "room-tag" : ""}`}>{product.kind === "space" ? <><span>RUANGAN</span><i className={`status-dot ${product.tag === "TERSEDIA" ? "green" : "red"}`} />{product.tag || "SPACE"}</> : <>STOK: {product.stock ?? "∞"}</>}</span>{product.tag === "BESTSELLER" && <span className="best-tag">BESTSELLER</span>}{product.tag === "TERPAKAI" && <span className="occupied-tag">● SEDANG DIPAKAI</span>}</div>
-              <div className="product-info"><span className={`product-category ${product.kind === "space" ? "blue-text" : ""}`}>{product.category}</span><h3>{product.name}</h3><div className="product-bottom"><span className="price">Rp {money(product.price)}{product.kind === "space" && <small>/jam</small>}</span><button className={product.kind === "space" ? "book-add" : "add-btn"} onClick={() => add(product)} aria-label={`Tambah ${product.name}`}>{product.kind === "space" ? <CalendarDays size={17} /> : <Plus size={20} />}</button></div></div>
+              <div className="product-photo" style={product.image ? { backgroundImage: `url("${product.image}")` } : undefined}><span className={`stock-tag ${product.kind === "space" ? "room-tag" : ""}`}>{product.kind === "space" ? <><span>RUANGAN</span><i className={`status-dot ${product.tag === "TERSEDIA" ? "green" : product.tag === "BOOKED" ? "yellow" : "red"}`} />{product.tag || "SPACE"}</> : <>STOK: {product.stock ?? "∞"}</>}</span>{product.tag === "BESTSELLER" && <span className="best-tag">BESTSELLER</span>}{product.tag === "TERPAKAI" && <span className="occupied-tag">● SEDANG DIPAKAI</span>}</div>
+              <div className="product-info"><span className={`product-category ${product.kind === "space" ? "blue-text" : ""}`}>{product.category}</span><h3>{product.name}</h3><div className="product-bottom"><span className="price">Rp {money(product.price)}{product.kind === "space" && <small>/jam</small>}</span><button className={product.kind === "space" ? "book-add" : "add-btn"} onClick={() => product.kind === "space" ? void openSpaceBooking(product) : add(product)} aria-label={`${product.kind === "space" ? "Pesan" : "Tambah"} ${product.name}`}>{product.kind === "space" ? <CalendarDays size={17} /> : <Plus size={20} />}</button></div></div>
             </motion.article>)}{filtered.length === 0 && <div className="empty-state">Menu tidak ditemukan. Coba kata kunci lain.</div>}</div></div>
         </section>
 
-        <aside className="order-panel"><div className="order-heading"><h2><span>▤</span> PESANAN AKTIF</h2><button><i />DINING &amp; RESERVASI<ChevronDown size={12} /></button></div><button className="active-order" onClick={() => setOrderMenuOpen((open) => !open)}><span className="table-code">{savedOrder ? savedOrder.code.slice(-4) : "BON"}</span><span className="order-name"><b>{savedOrder ? savedOrder.code : "Bon belum disimpan"}</b><small>{savedOrder?.status === "pending_payment" ? "Menunggu pembayaran" : savedOrder ? "Draft tersimpan · dapat diperbarui" : "Pilih atau mulai bon baru"}</small></span><span className="edit-order"><ChevronDown size={15} /></span></button>
+        <aside className="order-panel"><div className="order-heading"><h2><span>▤</span> PESANAN AKTIF</h2><button><i />DINING &amp; RESERVASI<ChevronDown size={12} /></button></div><button className="active-order" onClick={() => setOrderMenuOpen((open) => !open)}><span className="table-code">{savedOrder ? savedOrder.code.slice(-4) : "BON"}</span><span className="order-name"><b>{savedOrder ? savedOrder.code : "Bon belum disimpan"}</b><small>{savedOrder?.status === "pending_payment" ? "Menunggu pembayaran" : selectedTable ? `Meja ${selectedTable}${savedOrder ? " · bon tersimpan" : " · bon baru"}` : savedOrder ? "Draft tersimpan · dapat diperbarui" : "Pilih meja atau mulai bon baru"}</small></span><span className="edit-order"><ChevronDown size={15} /></span></button>
           <AnimatePresence>{orderMenuOpen && <motion.div className="open-order-menu" initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }}><div className="open-order-title">BON TERBUKA ({openOrders.length})</div>{openOrders.length ? openOrders.map((order) => <div className="open-order-row" key={order.id}><button onClick={() => void selectOpenOrder(order)}><b>{order.code}</b><span>Rp {money(order.total)}</span></button><button className="cancel-order" aria-label={`Batalkan ${order.code}`} onClick={() => void cancelOpenOrder(order)}><Trash2 size={14} /></button></div>) : <p>Belum ada bon tersimpan.</p>}</motion.div>}</AnimatePresence>
-          <div className="cart-list"><AnimatePresence initial={false}>{cart.map((line) => <motion.div className="cart-line" key={line.product.id} layout initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}><div className="line-heading"><b>{line.product.name}</b><button onClick={() => update(line.product.id, -line.qty)} aria-label="hapus item"><Trash2 size={15} /></button></div>{line.product.kind === "space" && <small className="space-rental">Durasi: {line.qty} jam (13:00 - 15:00)</small>}<div className="line-bottom"><div className="qty-stepper"><button onClick={() => update(line.product.id, -1)} aria-label="kurangi"><Minus size={13} /></button><span>{line.qty}</span><button onClick={() => update(line.product.id, 1)} aria-label="tambah"><Plus size={13} /></button></div><b>Rp {money(line.product.price * line.qty)}</b></div></motion.div>)}</AnimatePresence>{cart.length === 0 && <div className="empty-cart">Bon masih kosong.<br />Pilih menu untuk mulai.</div>}</div>
+          <div className="cart-list"><AnimatePresence initial={false}>{cart.map((line) => <motion.div className="cart-line" key={line.product.id} layout initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}><div className="line-heading"><b>{line.product.name}</b><button onClick={() => update(line.product.id, -line.qty)} disabled={line.product.kind === "space" && activeReservation?.productId === line.product.id} aria-label="hapus item"><Trash2 size={15} /></button></div>{line.product.kind === "space" && <small className="space-rental">{activeReservation ? `Durasi: ${line.qty} jam · ${new Date(activeReservation.startsAt).toLocaleString("id-ID", { dateStyle: "short", timeStyle: "short" })}` : `Durasi: ${line.qty} jam · reservasi belum dibuat`}</small>}<div className="line-bottom"><div className="qty-stepper">{line.product.kind === "space" ? <span>{line.qty} jam</span> : <><button onClick={() => update(line.product.id, -1)} aria-label="kurangi"><Minus size={13} /></button><span>{line.qty}</span><button onClick={() => update(line.product.id, 1)} aria-label="tambah"><Plus size={13} /></button></>}</div><b>Rp {money(line.product.price * line.qty)}</b></div></motion.div>)}</AnimatePresence>{cart.length === 0 && <div className="empty-cart">Bon masih kosong.<br />Pilih menu untuk mulai.</div>}</div>
           <div className="payment-summary"><div><span>Subtotal ({cart.length} Item):</span><b>Rp {money(subtotal)}</b></div><div><span>Pajak ({rates.tax / 100}%):</span><b>Rp {money(tax)}</b></div><div><span>Biaya Layanan ({rates.service / 100}%):</span><b>Rp {money(service)}</b></div><div className="discount-row"><span>Diskon ({rates.discount / 100}%):</span><b>- Rp {money(discount)}</b></div><div className="grand-total"><span><small>TOTAL TAGIHAN {savedOrder ? "TERSIMPAN" : "SEMENTARA"}</small><b>IDR</b></span><strong>{money(total)}</strong></div><button className="pay-button" onClick={checkout} disabled={orderBusy}><CreditCard size={19} /> {savedOrder && savedCartCurrent ? "BAYAR [F2]" : "SIMPAN & BAYAR [F2]"}</button><div className="receipt-actions"><button onClick={() => void startNewOrder()}><BriefcaseBusiness size={14} />Order Baru</button><button disabled><Printer size={14} />Cetak Struk</button></div></div>
         </aside>
       </div>
+      <AnimatePresence>{bookingProduct && <motion.div className="modal-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+        <motion.section className="payment-modal booking-modal" role="dialog" aria-modal="true" aria-labelledby="booking-title" initial={{ y: 14, scale: .98 }} animate={{ y: 0, scale: 1 }} exit={{ y: 10, opacity: 0 }}>
+          <button className="modal-close" aria-label="Tutup reservasi" onClick={() => setBookingProduct(null)}><X size={18} /></button>
+          <div className="modal-eyebrow">RESERVASI RUANG / {spaces.find((space) => space.productId === bookingProduct.id)?.code ?? "SPACE"}</div>
+          <h2 id="booking-title">{bookingProduct.name}</h2>
+          <p>Atur waktu kunjungan dan jumlah tamu.</p>
+          <label>Mulai reservasi<input type="datetime-local" step={3600} value={bookingStart} onChange={(event) => setBookingStart(event.target.value)} /></label>
+          <div className="booking-fields"><label>Durasi (jam)<input type="number" min={1} max={8} value={bookingDuration} onChange={(event) => setBookingDuration(Math.max(1, Math.min(8, Number(event.target.value))))} /></label><label>Jumlah tamu<input type="number" min={1} max={spaces.find((space) => space.productId === bookingProduct.id)?.capacity ?? 1} value={bookingGuestCount} onChange={(event) => setBookingGuestCount(Math.max(1, Number(event.target.value)))} /></label></div>
+          <label>Nama pemesan<input value={bookingCustomerName} onChange={(event) => setBookingCustomerName(event.target.value)} placeholder="Opsional" /></label>
+          <div className="booking-total"><span>Estimasi sewa</span><b>Rp {money(bookingProduct.price * bookingDuration)}</b></div>
+          <button className="login-submit" onClick={() => void confirmSpaceBooking()} disabled={bookingBusy}><CalendarDays size={17} />{bookingBusy ? "Menyimpan reservasi…" : "Reservasi & Tambah ke Bon"}</button>
+          <small className="payment-legal">Ruang ditahan 15 menit. Simpan bon untuk mengikat reservasi ke pesanan.</small>
+        </motion.section>
+      </motion.div>}</AnimatePresence>
       <AnimatePresence>{paymentOpen && <motion.div className="modal-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
         <motion.section className="payment-modal" role="dialog" aria-modal="true" aria-labelledby="payment-title" initial={{ y: 14, scale: .98 }} animate={{ y: 0, scale: 1 }} exit={{ y: 10, opacity: 0 }}>
           <button className="modal-close" aria-label="Tutup pembayaran" onClick={() => setPaymentOpen(false)}><X size={18} /></button>

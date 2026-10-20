@@ -1,7 +1,7 @@
 # Supabase and payment setup
 
 1. Create a Supabase project and copy its Project URL and publishable key into `.env.local` using `.env.example` as a guide.
-2. In the Supabase SQL Editor, run the migrations in order: `202610200001_catalog_foundation.sql`, `202610200002_orders.sql`, then `202610200003_payments.sql`.
+2. In the Supabase SQL Editor, run the migrations in order: `202610200001_catalog_foundation.sql`, `202610200002_orders.sql`, `202610200003_payments.sql`, then `202610200004_reservations.sql`.
 3. In **Authentication → Users**, create an owner account. Public sign-up is intentionally not part of the cashier terminal.
 4. Copy that user's UUID, then run the membership statement at the end of the migration with the real UUID. Set the store ID in `NEXT_PUBLIC_POS_STORE_ID` only if the user belongs to multiple stores (RLS still checks membership).
 5. Restart the Next.js dev server after changing `.env.local`, then sign in with the owner account.
@@ -23,6 +23,8 @@ Rates use basis points (`1000` = 10%). The interface can save, reopen, and cance
 Set `MIDTRANS_SERVER_KEY` on the server, leave `MIDTRANS_IS_PRODUCTION=false` for sandbox, and set `MIDTRANS_ENABLED_PAYMENTS=qris` (only channels enabled for the merchant account will be available). Set `NEXT_PUBLIC_APP_URL` to the deployed app's public URL so Snap can return the customer to `/payment/finish`. Configure `MIDTRANS_NOTIFICATION_URL` to the public HTTPS `/api/payments/notification` endpoint; the Snap request uses Midtrans' override-notification header. The app keeps the server key and Supabase service-role key on the server. Change production mode only after the merchant's production keys and notification endpoint are ready.
 
 The online path reserves finite stock before creating the Snap session and releases it on failed, cancelled, or expired notification. Successful callbacks are signature-checked, amount-checked, and idempotent; the terminal can also query Midtrans status if its notification is delayed. A late/duplicate payment is recorded as `duplicate_payment` for manual refund review. A paid order with an unexpected stock shortfall is marked `paid_review` for admin follow-up.
+
+The reservation migration seeds two bookable spaces and four table cards for the sample store. A space reservation holds the requested time range for 15 minutes until the cashier saves the matching bon. PostgreSQL excludes overlapping active space bookings; the booking function also checks capacity, duration, and store membership. Assign a table from the floor cards; it becomes available again when the order is paid or cancelled. Adjust the seeded spaces/tables for the real venue before operating.
 
 To add a cashier after creating their Auth user:
 

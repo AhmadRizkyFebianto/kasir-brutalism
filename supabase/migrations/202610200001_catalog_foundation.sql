@@ -12,7 +12,8 @@ create table if not exists public.stores (
 create table if not exists public.store_members (
   store_id uuid not null references public.stores(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
-  role text not null check (role in ('owner', 'admin', 'cashier')),
+  display_name text not null default '',
+  role text not null check (role in ('admin', 'pegawai')),
   created_at timestamptz not null default now(),
   primary key (store_id, user_id)
 );
@@ -79,6 +80,9 @@ create policy "members can view their stores" on public.stores
 drop policy if exists "members can view their own memberships" on public.store_members;
 create policy "members can view their own memberships" on public.store_members
   for select to authenticated using (user_id = (select auth.uid()));
+drop policy if exists "admins can view store memberships" on public.store_members;
+create policy "admins can view store memberships" on public.store_members
+  for select to authenticated using (public.has_store_role(store_id, array['admin']));
 
 drop policy if exists "members can view active catalog" on public.products;
 create policy "members can view active catalog" on public.products
@@ -86,8 +90,8 @@ create policy "members can view active catalog" on public.products
 
 drop policy if exists "admins can manage catalog" on public.products;
 create policy "admins can manage catalog" on public.products
-  for all to authenticated using (public.has_store_role(store_id, array['owner', 'admin']))
-  with check (public.has_store_role(store_id, array['owner', 'admin']));
+  for all to authenticated using (public.has_store_role(store_id, array['admin']))
+  with check (public.has_store_role(store_id, array['admin']));
 
 grant select on public.stores, public.store_members, public.products to authenticated;
 grant insert, update, delete on public.products to authenticated;
@@ -113,6 +117,6 @@ cross join public.stores s
 where s.slug = 'kopi-space-hub'
 on conflict (store_id, sku) do nothing;
 
--- After creating a Supabase Auth user, grant store access explicitly as an owner:
--- insert into public.store_members (store_id, user_id, role)
--- select id, '<AUTH_USER_UUID>', 'owner' from public.stores where slug = 'kopi-space-hub';
+-- After creating a Supabase Auth user, grant store access explicitly:
+-- insert into public.store_members (store_id, user_id, display_name, role)
+-- select id, '<AUTH_USER_UUID>', 'Nama Admin', 'admin' from public.stores where slug = 'kopi-space-hub';

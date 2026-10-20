@@ -65,7 +65,7 @@ begin
   if v_user_id is null or not public.is_store_member(p_store_id) or p_opening_cash is null or p_opening_cash < 0 then
     raise exception 'valid store membership and opening cash are required' using errcode = '42501';
   end if;
-  if not public.has_store_role(p_store_id, array['owner', 'admin', 'cashier']) then
+  if not public.has_store_role(p_store_id, array['admin', 'pegawai']) then
     raise exception 'not authorized for this store' using errcode = '42501';
   end if;
   insert into public.cashier_shifts (store_id, cashier_id, opening_cash)
@@ -90,7 +90,7 @@ declare
 begin
   select * into v_shift from public.cashier_shifts s where s.id = p_shift_id for update;
   if not found or v_user_id is null or not public.is_store_member(v_shift.store_id)
-    or (v_shift.cashier_id <> v_user_id and not public.has_store_role(v_shift.store_id, array['owner', 'admin'])) then
+    or (v_shift.cashier_id <> v_user_id and not public.has_store_role(v_shift.store_id, array['admin'])) then
     raise exception 'not authorized for this shift' using errcode = '42501';
   end if;
   if v_shift.status <> 'open' then raise exception 'shift is already closed' using errcode = '22023'; end if;

@@ -16,16 +16,17 @@ Kopi & Space Hub membutuhkan terminal kasir untuk satu gerai yang menjual minuma
 - Memungkinkan kasir memilih meja/ruang, menambahkan item, mengubah jumlah/durasi, dan menghitung total.
 - Menyimpan transaksi dan status pembayaran dengan aman.
 - Mendukung pembayaran tunai dan QRIS/kanal Midtrans yang diaktifkan untuk akun merchant.
-- Memiliki otorisasi peran kasir dan admin serta jejak perubahan transaksi.
+- Memiliki otorisasi peran `admin` dan `pegawai` serta jejak perubahan transaksi per akun pegawai.
 
 ## 3. Pengguna dan peran
-- **Kasir:** masuk shift, membuat/mengubah bon aktif, menetapkan meja, memproses pembayaran, cetak/resend struk.
-- **Admin/Owner:** kelola katalog, harga, stok, area/meja/ruang, pajak/layanan/diskon, pengguna, dan laporan.
+- **Pegawai:** masuk shift, membuat/mengubah bon aktif miliknya, menetapkan meja, memproses pembayaran, cetak/resend struk.
+- **Admin:** kelola katalog, harga, stok, area/meja/ruang, pajak/layanan/diskon, data pegawai, dan laporan.
 - **Webhook Midtrans:** layanan sistem yang memperbarui status pembayaran setelah memverifikasi notifikasi.
 
 ## 4. Lingkup MVP
 ### Termasuk
-- Login dan pembatasan akses berdasarkan gerai/peran.
+- Login Supabase Auth per orang; `store_members` menyimpan nama pegawai dan salah satu role `admin` atau `pegawai` untuk setiap gerai.
+- Pembatasan akses berdasarkan gerai/peran; ID Auth pegawai menjadi identitas pencatat pesanan dan shift.
 - Dashboard POS dengan pencarian/filter produk dan space.
 - Manajemen meja/ruang: available, reserved, occupied; waktu dan kapasitas reservasi.
 - Keranjang satu bon dengan produk dan biaya sewa space, kuantitas/durasi, diskon dan pajak yang dapat dikonfigurasi.
@@ -53,17 +54,17 @@ Kopi & Space Hub membutuhkan terminal kasir untuk satu gerai yang menjual minuma
 - **ORD-01:** nomor bon unik, item snapshot harga/pajak, kasir, gerai, meja, waktu, serta audit.
 - **PAY-01:** total dihitung ulang di server; browser tidak menjadi sumber nilai tagihan.
 - **PAY-02:** callback Midtrans memvalidasi signature, environment, nominal, order ID, dan status; callback berulang tidak menggandakan efek.
-- **PAY-03:** kunci server dan kredensial service role tidak pernah dikirim ke browser.
+- **PAY-03:** secret key server tidak pernah dikirim ke browser.
 - **PAY-04:** Snap dibuat di server dengan total bon yang tersimpan; status akhir hanya berasal dari callback terverifikasi atau pemeriksaan status Midtrans.
 - **PAY-05:** pembayaran tunai menandai lunas secara atomik dan memperbarui stok dalam transaksi database.
 - **SPACE-02:** reservasi ruang memvalidasi kapasitas, durasi, dan bentrok jadwal di database sebelum bon disimpan.
 - **TABLE-01:** satu bon dapat menempati meja; meja dilepas setelah bon dibayar atau dibatalkan.
 - **SHIFT-01:** kasir wajib membuka shift sebelum menerima pembayaran; transaksi tertaut ke shift aktif.
 - **SHIFT-02:** penutupan shift merekam saldo awal, tunai terhitung, tunai diharapkan, non-tunai, dan selisih.
-- **ADM-01:** owner/admin dapat membuat, mengubah, dan mengarsipkan produk; kasir hanya membaca katalog.
-- **ADM-02:** owner/admin dapat mengubah tarif gerai dan melihat laporan pembayaran per hari, minggu, bulan, dan tahun berdasarkan metode pembayaran.
+- **ADM-01:** admin dapat membuat, mengubah, dan mengarsipkan produk; pegawai hanya membaca katalog.
+- **ADM-02:** admin dapat mengubah tarif gerai dan melihat laporan pembayaran per hari, minggu, bulan, dan tahun berdasarkan metode pembayaran.
 - **RCP-01:** setelah pembayaran lunas, kasir dapat melihat dan mencetak struk browser dari snapshot item dan total tersimpan.
-- **RPT-02:** kasir/admin dapat melihat 100 pembayaran terbaru gerai dan membuka kembali struk untuk transaksi yang lunas.
+- **RPT-02:** pegawai/admin dapat melihat 100 pembayaran terbaru gerai dan membuka kembali struk untuk transaksi yang lunas.
 - **POS-04:** pencarian mencocokkan nama, kategori, SKU, dan kode ruang; shortcut F1/F2/F3/F4/ESC menjalankan aksi POS terkait.
 - **POS-05:** pilihan kategori rail dan filter cepat menyaring produk/ruang menurut kelompok menu yang sesuai.
 - **ORD-02:** harga dan total bon dihitung ulang melalui RPC database; aplikasi hanya mengirim product ID dan jumlah.

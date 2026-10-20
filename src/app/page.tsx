@@ -20,7 +20,8 @@ type SpaceRecord = { id: string; productId: string; code: string; capacity: numb
 type SpaceReservation = { id: string; spaceId: string; productId: string; startsAt: string; endsAt: string; guestCount: number; customerName?: string; orderId?: string; holdExpiresAt?: string };
 type CashierShift = { id: string; opened_at: string; opening_cash: number; status: "open" | "closed" };
 type CatalogDraft = { id: string; sku: string; name: string; category: string; price: string; stock: string; image_url: string; tag: string };
-type ReportPayment = { id: string; order_id: string; amount: number; payment_type: string | null; paid_at: string | null; };
+type ReportPayment = { id: string; order_id: string; amount: number; payment_type: string | null; paid_at: string | null; cashierName?: string };
+type ActiveCashier = { cashier_id: string; display_name: string; opened_at: string; opening_cash: number };
 type ReportPeriod = "day" | "week" | "month" | "year";
 type ReceiptLine = { name: string; quantity: number; unitPrice: number; lineTotal: number };
 type ReceiptData = { code: string; storeName: string; paidAt: string; method: string; tableCode: string | null; subtotal: number; discount: number; tax: number; service: number; total: number; lines: ReceiptLine[] };
@@ -70,6 +71,7 @@ const demoTables: StoreTable[] = [
 
 export default function Home() {
   const [authLoading, setAuthLoading] = useState(isSupabaseConfigured);
+  const [accessResolved, setAccessResolved] = useState(!isSupabaseConfigured);
   const [user, setUser] = useState<User | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [storeName, setStoreName] = useState("KOPI & SPACE");
@@ -88,8 +90,10 @@ export default function Home() {
   const [countedCashInput, setCountedCashInput] = useState("");
   const [shiftBusy, setShiftBusy] = useState(false);
   const [memberRole, setMemberRole] = useState("");
+  const [memberDisplayName, setMemberDisplayName] = useState("");
+  const [activeCashiers, setActiveCashiers] = useState<ActiveCashier[]>([]);
   const [adminOpen, setAdminOpen] = useState(false);
-  const [adminTab, setAdminTab] = useState<"catalog" | "rates" | "report">("catalog");
+  const [adminTab, setAdminTab] = useState<"overview" | "catalog" | "rates" | "report">("overview");
   const [adminBusy, setAdminBusy] = useState(false);
   const [adminMessage, setAdminMessage] = useState("");
   const [productDraft, setProductDraft] = useState<CatalogDraft>({ id: "", sku: "", name: "", category: "Kopi", price: "", stock: "", image_url: "", tag: "" });
@@ -142,7 +146,7 @@ export default function Home() {
         const { data: membership, error: membershipError } = await client
           .from("store_members").select("store_id,role").eq("user_id", authUser.id).limit(1).maybeSingle();
         if (membershipError || !membership) {
-          if (current) { setCatalog([]); setNotice("Akun ini belum diberi akses ke gerai. Minta owner menambahkan keanggotaan kasir."); setCatalogLoading(false); }
+          if (current) { setCatalog([]); setNotice("Akun ini belum diberi akses ke gerai. Minta admin menambahkan keanggotaan pegawai."); setCatalogLoading(false); }
           return;
         }
         storeId = membership.store_id;
@@ -537,7 +541,7 @@ export default function Home() {
     setNotice(`Shift ditutup · tunai Rp ${money(summary.cash_sales)} · non-tunai Rp ${money(summary.other_sales)} · selisih kas ${summary.cash_difference < 0 ? "-" : "+"}Rp ${money(Math.abs(summary.cash_difference))}.`);
   }
   function openAdmin() {
-    if (!['owner', 'admin'].includes(memberRole)) return;
+    if (memberRole !== "admin") return;
     setAdminMessage("");
     setRateDraft({ tax: String(rates.tax / 100), service: String(rates.service / 100), discount: String(rates.discount / 100) });
     setAdminOpen(true);
@@ -731,7 +735,7 @@ export default function Home() {
     <main className="pos-shell">
       <header className="topbar">
         <div className="brand"><div className="brand-mark"><Command size={19} strokeWidth={3} /></div><span>{storeName}</span><div className="online-chip"><i />{isSupabaseConfigured ? "ONLINE: KASIR" : "MODE DEMO"}</div></div>
-        <div className="top-actions"><button className="shift-chip" onClick={() => setShiftDialogOpen(true)}><Clock3 size={14} />{cashierShift ? "Shift Aktif" : "Shift Tutup"}<b>{cashierShift ? new Date(cashierShift.opened_at).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "—"}</b></button><button className="control-btn" onClick={() => { setCountedCashInput(String(cashierShift?.opening_cash ?? 0)); setShiftDialogOpen(true); }}><LockKeyhole size={15} />{cashierShift ? "Tutup Shift" : "Buka Shift"}</button><button className="icon-btn" aria-label="Riwayat transaksi" title="Riwayat transaksi" onClick={() => { setHistoryOpen(true); void loadTransactionHistory(); }}><History size={16} /></button>{['owner', 'admin'].includes(memberRole) && <button className="icon-btn" aria-label="Pengaturan gerai" title="Katalog, tarif, dan laporan" onClick={openAdmin}><Settings size={16} /></button>}<button className="icon-btn" aria-label="refresh" onClick={() => void refreshCatalog()}><Sparkles size={16} /></button><button className="icon-btn notification" aria-label="notifications"><Bell size={17} /></button>{user ? <button className="avatar" title={user.email ?? "Kasir"} onClick={async () => { await createSupabaseBrowserClient()?.auth.signOut(); }}>KS</button> : <button className="avatar">KS</button>}</div>
+        <div className="top-actions"><button className="shift-chip" onClick={() => setShiftDialogOpen(true)}><Clock3 size={14} />{cashierShift ? "Shift Aktif" : "Shift Tutup"}<b>{cashierShift ? new Date(cashierShift.opened_at).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "—"}</b></button><button className="control-btn" onClick={() => { setCountedCashInput(String(cashierShift?.opening_cash ?? 0)); setShiftDialogOpen(true); }}><LockKeyhole size={15} />{cashierShift ? "Tutup Shift" : "Buka Shift"}</button><button className="icon-btn" aria-label="Riwayat transaksi" title="Riwayat transaksi" onClick={() => { setHistoryOpen(true); void loadTransactionHistory(); }}><History size={16} /></button>{memberRole === "admin" && <button className="icon-btn" aria-label="Pengaturan gerai" title="Katalog, tarif, dan laporan" onClick={openAdmin}><Settings size={16} /></button>}<button className="icon-btn" aria-label="refresh" onClick={() => void refreshCatalog()}><Sparkles size={16} /></button><button className="icon-btn notification" aria-label="notifications"><Bell size={17} /></button>{user ? <button className="avatar" title={user.email ?? "Pegawai"} onClick={async () => { await createSupabaseBrowserClient()?.auth.signOut(); }}>KS</button> : <button className="avatar">KS</button>}</div>
       </header>
 
       <div className="workspace">
@@ -789,7 +793,7 @@ export default function Home() {
       <AnimatePresence>{adminOpen && <motion.div className="modal-backdrop admin-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
         <motion.section className="payment-modal admin-modal" role="dialog" aria-modal="true" aria-labelledby="admin-title" initial={{ y: 14, scale: .98 }} animate={{ y: 0, scale: 1 }} exit={{ y: 10, opacity: 0 }}>
           <button className="modal-close" aria-label="Tutup pengaturan" onClick={() => setAdminOpen(false)}><X size={18} /></button>
-          <div className="modal-eyebrow">OWNER / ADMIN</div><h2 id="admin-title">Pengaturan gerai</h2>
+          <div className="modal-eyebrow">ADMIN</div><h2 id="admin-title">Pengaturan gerai</h2>
           <div className="admin-tabs"><button className={adminTab === "catalog" ? "active" : ""} onClick={() => setAdminTab("catalog")}><ShoppingBag size={14} />Katalog</button><button className={adminTab === "rates" ? "active" : ""} onClick={() => setAdminTab("rates")}><Settings size={14} />Tarif</button><button className={adminTab === "report" ? "active" : ""} onClick={() => { setAdminTab("report"); void loadFinancialReport(); }}><FileBarChart size={14} />Laporan keuangan</button></div>
           {adminTab === "catalog" && <div className="admin-content">
             <div className="admin-product-list"><button className="admin-product-new" onClick={() => selectAdminProduct()}>+ Produk baru</button>{catalog.filter((product) => product.kind === "product").map((product) => <button key={product.id} className={`admin-product-option ${productDraft.id === product.id ? "active" : ""}`} onClick={() => selectAdminProduct(product)}><span><b>{product.name}</b><small>Rp {money(product.price)} · {product.stock ?? "Stok ∞"}</small></span><ChevronDown size={14} /></button>)}</div>

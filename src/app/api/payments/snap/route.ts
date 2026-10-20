@@ -31,7 +31,7 @@ export async function POST(request: Request) {
     if (!order) return NextResponse.json({ error: "Bon tidak ditemukan." }, { status: 404 });
     const { data: member } = await admin.from("store_members").select("role")
       .eq("store_id", order.store_id).eq("user_id", user.id).maybeSingle();
-    if (!member || (order.cashier_id !== user.id && !["owner", "admin"].includes(member.role))) {
+    if (!member || (order.cashier_id !== user.id && member.role !== "admin")) {
       return NextResponse.json({ error: "Akses ke bon ini ditolak." }, { status: 403 });
     }
 

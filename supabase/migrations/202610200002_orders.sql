@@ -75,8 +75,8 @@ create policy "members can view store settings" on public.store_settings
   for select to authenticated using (public.is_store_member(store_id));
 drop policy if exists "admins can update store settings" on public.store_settings;
 create policy "admins can update store settings" on public.store_settings
-  for update to authenticated using (public.has_store_role(store_id, array['owner', 'admin']))
-  with check (public.has_store_role(store_id, array['owner', 'admin']));
+  for update to authenticated using (public.has_store_role(store_id, array['admin']))
+  with check (public.has_store_role(store_id, array['admin']));
 
 drop policy if exists "members can view orders" on public.orders;
 create policy "members can view orders" on public.orders
@@ -244,7 +244,7 @@ begin
   if not found or v_user_id is null or not public.is_store_member(v_order.store_id) then
     raise exception 'not authorized for this order' using errcode = '42501';
   end if;
-  if v_order.status <> 'open' or (v_order.cashier_id <> v_user_id and not public.has_store_role(v_order.store_id, array['owner', 'admin'])) then
+  if v_order.status <> 'open' or (v_order.cashier_id <> v_user_id and not public.has_store_role(v_order.store_id, array['admin'])) then
     raise exception 'order cannot be edited' using errcode = '42501';
   end if;
   if p_items is null or jsonb_typeof(p_items) is distinct from 'array' or jsonb_array_length(p_items) = 0 or jsonb_array_length(p_items) > 100 then
@@ -313,7 +313,7 @@ begin
   if not found or v_user_id is null or not public.is_store_member(v_order.store_id) then
     raise exception 'not authorized for this order' using errcode = '42501';
   end if;
-  if v_order.status <> 'open' or (v_order.cashier_id <> v_user_id and not public.has_store_role(v_order.store_id, array['owner', 'admin'])) then
+  if v_order.status <> 'open' or (v_order.cashier_id <> v_user_id and not public.has_store_role(v_order.store_id, array['admin'])) then
     raise exception 'order cannot be cancelled' using errcode = '42501';
   end if;
   update public.orders set status = 'cancelled', updated_at = now() where id = p_order_id;

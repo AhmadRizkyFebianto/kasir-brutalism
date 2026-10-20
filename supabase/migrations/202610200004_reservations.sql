@@ -149,7 +149,7 @@ begin
   if not found or v_user_id is null or not public.is_store_member(v_order.store_id) then
     raise exception 'not authorized for this order' using errcode = '42501';
   end if;
-  if v_order.status <> 'open' or (v_order.cashier_id <> v_user_id and not public.has_store_role(v_order.store_id, array['owner', 'admin'])) then
+  if v_order.status <> 'open' or (v_order.cashier_id <> v_user_id and not public.has_store_role(v_order.store_id, array['admin'])) then
     raise exception 'order cannot accept a reservation' using errcode = '42501';
   end if;
   select * into v_reservation from public.space_reservations r where r.id = p_reservation_id for update;
@@ -178,7 +178,7 @@ declare
 begin
   select * into v_reservation from public.space_reservations r where r.id = p_reservation_id for update;
   if not found or v_user_id is null or not public.is_store_member(v_reservation.store_id)
-    or (v_reservation.reserved_by <> v_user_id and not public.has_store_role(v_reservation.store_id, array['owner', 'admin'])) then
+    or (v_reservation.reserved_by <> v_user_id and not public.has_store_role(v_reservation.store_id, array['admin'])) then
     raise exception 'not authorized for this reservation' using errcode = '42501';
   end if;
   if v_reservation.order_id is not null then
@@ -206,7 +206,7 @@ begin
   if not found or v_user_id is null or not public.is_store_member(v_order.store_id) then
     raise exception 'not authorized for this order' using errcode = '42501';
   end if;
-  if v_order.status <> 'open' or (v_order.cashier_id <> v_user_id and not public.has_store_role(v_order.store_id, array['owner', 'admin'])) then
+  if v_order.status <> 'open' or (v_order.cashier_id <> v_user_id and not public.has_store_role(v_order.store_id, array['admin'])) then
     raise exception 'order cannot be assigned a table' using errcode = '42501';
   end if;
   select * into v_table from public.store_tables t where t.store_id = v_order.store_id and t.code = p_table_code and t.is_active for update;
@@ -272,7 +272,7 @@ declare
 begin
   select * into v_order from public.orders o where o.id = p_order_id for update;
   if not found or v_user_id is null or not public.is_store_member(v_order.store_id)
-    or (v_order.cashier_id <> v_user_id and not public.has_store_role(v_order.store_id, array['owner', 'admin'])) then
+    or (v_order.cashier_id <> v_user_id and not public.has_store_role(v_order.store_id, array['admin'])) then
     raise exception 'not authorized for this order' using errcode = '42501';
   end if;
   if v_order.status <> 'open' then raise exception 'table can only be cleared on an open order' using errcode = '22023'; end if;

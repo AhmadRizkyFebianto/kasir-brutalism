@@ -44,8 +44,8 @@ alter table public.inventory_movements enable row level security;
 drop policy if exists "members can view payments" on public.payments;
 create policy "members can view payments" on public.payments
   for select to authenticated using (public.is_store_member(store_id));
-drop policy if exists "admins and cashiers can view inventory history" on public.inventory_movements;
-create policy "admins and cashiers can view inventory history" on public.inventory_movements
+drop policy if exists "admins and employees can view inventory history" on public.inventory_movements;
+create policy "admins and employees can view inventory history" on public.inventory_movements
   for select to authenticated using (public.is_store_member(store_id));
 grant select on public.payments, public.inventory_movements to authenticated;
 
@@ -77,7 +77,7 @@ begin
   if not found or v_user_id is null or not public.is_store_member(v_order.store_id) then
     raise exception 'not authorized for this order' using errcode = '42501';
   end if;
-  if v_order.cashier_id <> v_user_id and not public.has_store_role(v_order.store_id, array['owner', 'admin']) then
+  if v_order.cashier_id <> v_user_id and not public.has_store_role(v_order.store_id, array['admin']) then
     raise exception 'not authorized for this order' using errcode = '42501';
   end if;
   if v_order.status = 'paid' or v_order.status = 'paid_review' then
@@ -146,7 +146,7 @@ begin
   if not found then raise exception 'payment not found'; end if;
   select * into v_order from public.orders o where o.id = v_payment.order_id for update;
   select * into v_payment from public.payments p where p.id = p_payment_id for update;
-  if v_user_id is null or (v_order.cashier_id <> v_user_id and not public.has_store_role(v_order.store_id, array['owner', 'admin'])) then
+  if v_user_id is null or (v_order.cashier_id <> v_user_id and not public.has_store_role(v_order.store_id, array['admin'])) then
     raise exception 'not authorized for this payment' using errcode = '42501';
   end if;
   if v_payment.status not in ('initiating', 'pending') then return; end if;
@@ -190,7 +190,7 @@ begin
   if not found or v_user_id is null or not public.is_store_member(v_order.store_id) then
     raise exception 'not authorized for this order' using errcode = '42501';
   end if;
-  if v_order.cashier_id <> v_user_id and not public.has_store_role(v_order.store_id, array['owner', 'admin']) then
+  if v_order.cashier_id <> v_user_id and not public.has_store_role(v_order.store_id, array['admin']) then
     raise exception 'not authorized for this order' using errcode = '42501';
   end if;
   if v_order.status <> 'open' then raise exception 'only open orders can be paid with cash' using errcode = '22023'; end if;

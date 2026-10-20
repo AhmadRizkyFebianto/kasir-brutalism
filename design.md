@@ -42,6 +42,7 @@ Outline utama 2–3 px dengan shadow offset 2–3 px tanpa blur. Kartu konten me
 - Panel admin: tab katalog, tarif gerai, dan laporan harian; akses panel hanya tampil untuk owner/admin.
 - Laporan harian memakai ringkasan kartu dan daftar transaksi pembayaran lunas dengan kanal dan waktu.
 - Struk menampilkan gerai, nomor bon, waktu, meja, item dan kuantitas, rincian biaya, total, serta metode pembayaran; tata letak cetak dioptimalkan untuk kertas receipt sempit melalui dialog cetak browser.
+- Riwayat pembayaran menampilkan nomor bon, tanggal, meja, nominal, kanal, dan status; transaksi lunas dapat membuka pratinjau cetak ulang struk.
 - Keadaan perlu didesain lanjut: kosong, loading/skeleton, stok habis, ruang bentrok, pembayaran pending/gagal/berhasil, koneksi offline, dan rekonsiliasi lintas shift.
 
 ## Catatan implementasi

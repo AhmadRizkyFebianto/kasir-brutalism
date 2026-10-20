@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Banknote, Bell, BriefcaseBusiness, CalendarDays, Check, ChevronDown, CircleHelp,
-  Clock3, Coffee, Command, CreditCard, FileBarChart, LayoutGrid, LockKeyhole, Minus, Plus,
+  Clock3, Coffee, Command, CreditCard, FileBarChart, History, LayoutGrid, LockKeyhole, Minus, Plus,
   Printer, Save, Search, Settings, ShoppingBag, Sparkles, Trash2, Utensils, X,
 } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
@@ -23,6 +23,7 @@ type CatalogDraft = { id: string; sku: string; name: string; category: string; p
 type ReportPayment = { id: string; order_id: string; amount: number; payment_type: string | null; paid_at: string | null; };
 type ReceiptLine = { name: string; quantity: number; unitPrice: number; lineTotal: number };
 type ReceiptData = { code: string; storeName: string; paidAt: string; method: string; tableCode: string | null; subtotal: number; discount: number; tax: number; service: number; total: number; lines: ReceiptLine[] };
+type HistoryEntry = { paymentId: string; orderId: string; code: string; tableCode: string | null; orderStatus: string; paymentStatus: string; amount: number; paymentType: string | null; paidAt: string | null; createdAt: string };
 
 const products: Product[] = [
   { id: "demo-1", name: "Kopi Susu Gula Aren Hub", category: "Kopi • Dingin", price: 22000, stock: 48, kind: "product", image: "https://images.unsplash.com/photo-1517701604599-bb29b565090c?auto=format&fit=crop&w=700&q=85", tag: "BESTSELLER" },
@@ -75,6 +76,9 @@ export default function Home() {
   const [reportLoading, setReportLoading] = useState(false);
   const [lastReceipt, setLastReceipt] = useState<ReceiptData | null>(null);
   const [receiptOpen, setReceiptOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
   const [bookingProduct, setBookingProduct] = useState<Product | null>(null);
   const [bookingStart, setBookingStart] = useState("");
   const [bookingDuration, setBookingDuration] = useState(2);
@@ -576,6 +580,43 @@ export default function Home() {
   }
   const dailyCash = reportPayments.filter((payment) => payment.payment_type === "cash").reduce((sum, payment) => sum + payment.amount, 0);
   const dailyNonCash = reportPayments.filter((payment) => payment.payment_type !== "cash").reduce((sum, payment) => sum + payment.amount, 0);
+  async function loadTransactionHistory() {
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase || !storeId) return;
+    setHistoryLoading(true);
+    const { data: payments, error } = await supabase.from("payments")
+      .select("id,order_id,amount,payment_type,paid_at,status,created_at")
+      .eq("store_id", storeId).order("created_at", { ascending: false }).limit(100);
+    if (error) { setHistoryLoading(false); setNotice(`Riwayat transaksi gagal dimuat: ${error.message}`); return; }
+    const orderIds = [...new Set((payments ?? []).map((payment) => payment.order_id))];
+    const { data: orders, error: orderError } = orderIds.length
+      ? await supabase.from("orders").select("id,order_code,table_code,status").eq("store_id", storeId).in("id", orderIds)
+      : { data: [], error: null };
+    setHistoryLoading(false);
+    if (orderError) { setNotice(`Bon pada riwayat gagal dimuat: ${orderError.message}`); return; }
+    setHistoryEntries((payments ?? []).flatMap((payment) => {
+      const order = orders?.find((item) => item.id === payment.order_id);
+      return order ? [{ paymentId: payment.id, orderId: order.id, code: order.order_code, tableCode: order.table_code, orderStatus: order.status, paymentStatus: payment.status, amount: payment.amount, paymentType: payment.payment_type, paidAt: payment.paid_at, createdAt: payment.created_at }] : [];
+    }));
+  }
+  async function showHistoricalReceipt(entry: HistoryEntry) {
+    if (!['paid', 'paid_review'].includes(entry.orderStatus)) { setNotice("Struk hanya tersedia untuk bon yang sudah lunas."); return; }
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase) return;
+    const [{ data: order }, { data: items }] = await Promise.all([
+      supabase.from("orders").select("order_code,subtotal,discount_amount,tax_amount,service_amount,total_amount,paid_at,table_code").eq("id", entry.orderId).maybeSingle(),
+      supabase.from("order_items").select("product_name,quantity,unit_price,line_total").eq("order_id", entry.orderId).order("created_at"),
+    ]);
+    if (!order || !items?.length) { setNotice("Detail bon tidak tersedia untuk dicetak."); return; }
+    setLastReceipt({
+      code: order.order_code, storeName, paidAt: order.paid_at ?? entry.paidAt ?? entry.createdAt,
+      method: entry.paymentType === "cash" ? "Tunai" : entry.paymentType ?? "Non-tunai", tableCode: order.table_code,
+      subtotal: order.subtotal, discount: order.discount_amount, tax: order.tax_amount, service: order.service_amount, total: order.total_amount,
+      lines: items.map((item) => ({ name: item.product_name, quantity: item.quantity, unitPrice: item.unit_price, lineTotal: item.line_total })),
+    });
+    setHistoryOpen(false);
+    setReceiptOpen(true);
+  }
   async function refreshCatalog() {
     const supabase = createSupabaseBrowserClient();
     if (!supabase || !storeId) return;
@@ -605,7 +646,7 @@ export default function Home() {
     <main className="pos-shell">
       <header className="topbar">
         <div className="brand"><div className="brand-mark"><Command size={19} strokeWidth={3} /></div><span>{storeName}</span><div className="online-chip"><i />{isSupabaseConfigured ? "ONLINE: KASIR" : "MODE DEMO"}</div></div>
-        <div className="top-actions"><button className="shift-chip" onClick={() => setShiftDialogOpen(true)}><Clock3 size={14} />{cashierShift ? "Shift Aktif" : "Shift Tutup"}<b>{cashierShift ? new Date(cashierShift.opened_at).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "—"}</b></button><button className="control-btn" onClick={() => { setCountedCashInput(String(cashierShift?.opening_cash ?? 0)); setShiftDialogOpen(true); }}><LockKeyhole size={15} />{cashierShift ? "Tutup Shift" : "Buka Shift"}</button>{['owner', 'admin'].includes(memberRole) && <button className="icon-btn" aria-label="Pengaturan gerai" title="Katalog, tarif, dan laporan" onClick={openAdmin}><Settings size={16} /></button>}<button className="icon-btn" aria-label="refresh" onClick={() => void refreshCatalog()}><Sparkles size={16} /></button><button className="icon-btn notification" aria-label="notifications"><Bell size={17} /></button>{user ? <button className="avatar" title={user.email ?? "Kasir"} onClick={async () => { await createSupabaseBrowserClient()?.auth.signOut(); }}>KS</button> : <button className="avatar">KS</button>}</div>
+        <div className="top-actions"><button className="shift-chip" onClick={() => setShiftDialogOpen(true)}><Clock3 size={14} />{cashierShift ? "Shift Aktif" : "Shift Tutup"}<b>{cashierShift ? new Date(cashierShift.opened_at).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "—"}</b></button><button className="control-btn" onClick={() => { setCountedCashInput(String(cashierShift?.opening_cash ?? 0)); setShiftDialogOpen(true); }}><LockKeyhole size={15} />{cashierShift ? "Tutup Shift" : "Buka Shift"}</button><button className="icon-btn" aria-label="Riwayat transaksi" title="Riwayat transaksi" onClick={() => { setHistoryOpen(true); void loadTransactionHistory(); }}><History size={16} /></button>{['owner', 'admin'].includes(memberRole) && <button className="icon-btn" aria-label="Pengaturan gerai" title="Katalog, tarif, dan laporan" onClick={openAdmin}><Settings size={16} /></button>}<button className="icon-btn" aria-label="refresh" onClick={() => void refreshCatalog()}><Sparkles size={16} /></button><button className="icon-btn notification" aria-label="notifications"><Bell size={17} /></button>{user ? <button className="avatar" title={user.email ?? "Kasir"} onClick={async () => { await createSupabaseBrowserClient()?.auth.signOut(); }}>KS</button> : <button className="avatar">KS</button>}</div>
       </header>
 
       <div className="workspace">
@@ -646,6 +687,18 @@ export default function Home() {
             <div className="receipt-thanks">Terima kasih telah berkunjung!</div>
           </div>
           <div className="receipt-controls"><button className="control-btn" onClick={() => setReceiptOpen(false)}>Tutup</button><button className="pay-button" onClick={() => window.print()}><Printer size={16} />Cetak struk</button></div>
+        </motion.section>
+      </motion.div>}</AnimatePresence>
+      <AnimatePresence>{historyOpen && <motion.div className="modal-backdrop history-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+        <motion.section className="payment-modal history-modal" role="dialog" aria-modal="true" aria-labelledby="history-title" initial={{ y: 14, scale: .98 }} animate={{ y: 0, scale: 1 }} exit={{ y: 10, opacity: 0 }}>
+          <button className="modal-close" aria-label="Tutup riwayat" onClick={() => setHistoryOpen(false)}><X size={18} /></button>
+          <div className="modal-eyebrow">TRANSAKSI GERAI</div><h2 id="history-title">Riwayat pembayaran</h2><p>100 pembayaran terbaru, termasuk transaksi yang perlu ditindaklanjuti.</p>
+          <div className="history-list">{historyLoading ? <div className="history-empty">Memuat riwayat transaksi…</div> : historyEntries.length ? historyEntries.map((entry) => {
+            const paid = ['paid', 'paid_review'].includes(entry.orderStatus);
+            const statusLabel = entry.orderStatus === "paid" ? "LUNAS" : entry.orderStatus === "paid_review" ? "PERLU CEK" : entry.orderStatus === "pending_payment" ? "MENUNGGU" : entry.paymentStatus.toUpperCase();
+            return <div className="history-row" key={entry.paymentId}><div className="history-row-main"><b>{entry.code}</b><small>{new Date(entry.paidAt ?? entry.createdAt).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" })}{entry.tableCode ? ` · Meja ${entry.tableCode}` : ""}</small></div><div className="history-row-payment"><b>Rp {money(entry.amount)}</b><small>{entry.paymentType === "cash" ? "Tunai" : entry.paymentType ?? "Online"}</small></div><span className={`history-status ${paid ? "paid" : "pending"}`}>{statusLabel}</span><button className="history-receipt" disabled={!paid} onClick={() => void showHistoricalReceipt(entry)} aria-label={`Lihat struk ${entry.code}`}><Printer size={15} /></button></div>;
+          }) : <div className="history-empty">Belum ada pembayaran di gerai ini.</div>}</div>
+          <button className="check-status history-refresh" onClick={() => void loadTransactionHistory()} disabled={historyLoading}><Sparkles size={14} />Muat ulang riwayat</button>
         </motion.section>
       </motion.div>}</AnimatePresence>
       <AnimatePresence>{adminOpen && <motion.div className="modal-backdrop admin-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>

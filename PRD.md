@@ -1,6 +1,6 @@
 # PRD — Kopi & Space Hub POS
 
-**Status:** Implementasi bertahap — irisan 1 (autentikasi/katalog), 2 (bon), 3 (pembayaran), dan 4 (meja/reservasi)
+**Status:** Implementasi bertahap — irisan 1 (autentikasi/katalog), 2 (bon), 3 (pembayaran), 4 (meja/reservasi), 5 (shift kasir)
 **Platform:** Web responsif, Next.js + TypeScript + Tailwind CSS + Framer Motion  
 **Backend/data:** Supabase (Postgres, Auth, Storage)  
 **Pembayaran:** Midtrans
@@ -58,6 +58,8 @@ Kopi & Space Hub membutuhkan terminal kasir untuk satu gerai yang menjual minuma
 - **PAY-05:** pembayaran tunai menandai lunas secara atomik dan memperbarui stok dalam transaksi database.
 - **SPACE-02:** reservasi ruang memvalidasi kapasitas, durasi, dan bentrok jadwal di database sebelum bon disimpan.
 - **TABLE-01:** satu bon dapat menempati meja; meja dilepas setelah bon dibayar atau dibatalkan.
+- **SHIFT-01:** kasir wajib membuka shift sebelum menerima pembayaran; transaksi tertaut ke shift aktif.
+- **SHIFT-02:** penutupan shift merekam saldo awal, tunai terhitung, tunai diharapkan, non-tunai, dan selisih.
 - **ORD-02:** harga dan total bon dihitung ulang melalui RPC database; aplikasi hanya mengirim product ID dan jumlah.
 - **ORD-03:** bon draft tersimpan dengan snapshot harga, dapat diedit oleh kasir pembuat, dan tetap terlihat setelah terminal dimuat ulang.
 - **INV-01:** stok berkurang secara atomik setelah transaksi dibayar sesuai kebijakan yang disepakati.

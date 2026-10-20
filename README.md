@@ -17,8 +17,9 @@ Without Supabase environment values, the POS opens in clearly labeled demo mode.
 - Base interface and product/design brief: `e27bc41` (`feat: scaffold brutalist POS interface`)
 - Supabase authentication and catalog: `8f400c2` (`feat: connect Supabase auth and catalog`)
 - Persistent orders and server-side totals: `5a95536` (`feat: persist POS orders with server totals`)
-- Supabase-backed cash and Midtrans Snap payments: next feature commit
-- Table assignment and space reservations: next feature commit
-- Shift closing, admin catalog settings, and reports: upcoming feature commits
+- Supabase-backed cash and Midtrans Snap payments: `1fa6749` (`feat: add Midtrans and cash payments`)
+- Table assignment and space reservations: `9df504c` (`feat: add table assignment and space reservations`)
+- Cashier shifts and cash reconciliation: next feature commit
+- Admin catalog management and sales reports: upcoming feature commits
 
 The repository has no remote configured. Push only after adding the Git remote for your own repository.

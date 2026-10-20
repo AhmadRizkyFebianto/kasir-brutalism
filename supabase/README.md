@@ -1,7 +1,7 @@
 # Supabase and payment setup
 
 1. Create a Supabase project and copy its Project URL and publishable key into `.env.local` using `.env.example` as a guide.
-2. In the Supabase SQL Editor, run the migrations in order: `202610200001_catalog_foundation.sql`, `202610200002_orders.sql`, `202610200003_payments.sql`, then `202610200004_reservations.sql`.
+2. In the Supabase SQL Editor, run the migrations in order: `202610200001_catalog_foundation.sql`, `202610200002_orders.sql`, `202610200003_payments.sql`, `202610200004_reservations.sql`, then `202610200005_shifts.sql`.
 3. In **Authentication → Users**, create an owner account. Public sign-up is intentionally not part of the cashier terminal.
 4. Copy that user's UUID, then run the membership statement at the end of the migration with the real UUID. Set the store ID in `NEXT_PUBLIC_POS_STORE_ID` only if the user belongs to multiple stores (RLS still checks membership).
 5. Restart the Next.js dev server after changing `.env.local`, then sign in with the owner account.
@@ -25,6 +25,8 @@ Set `MIDTRANS_SERVER_KEY` on the server, leave `MIDTRANS_IS_PRODUCTION=false` fo
 The online path reserves finite stock before creating the Snap session and releases it on failed, cancelled, or expired notification. Successful callbacks are signature-checked, amount-checked, and idempotent; the terminal can also query Midtrans status if its notification is delayed. A late/duplicate payment is recorded as `duplicate_payment` for manual refund review. A paid order with an unexpected stock shortfall is marked `paid_review` for admin follow-up.
 
 The reservation migration seeds two bookable spaces and four table cards for the sample store. A space reservation holds the requested time range for 15 minutes until the cashier saves the matching bon. PostgreSQL excludes overlapping active space bookings; the booking function also checks capacity, duration, and store membership. Assign a table from the floor cards; it becomes available again when the order is paid or cancelled. Adjust the seeded spaces/tables for the real venue before operating.
+
+The shift migration adds one active shift per cashier and store. Payments created by an authenticated cashier are linked to that cashier's active shift; payment creation is rejected until the cashier opens one. Closing the shift records counted cash, expected cash (opening float plus successful cash payments), non-cash sales, and the variance. Midtrans payments are included in non-cash totals after their verified success callback.
 
 To add a cashier after creating their Auth user:
 

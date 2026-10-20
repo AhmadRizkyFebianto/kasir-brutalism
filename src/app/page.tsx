@@ -18,6 +18,7 @@ type PricingRates = { tax: number; service: number; discount: number };
 type StoreTable = { code: string; desc: string; area: string; capacity: number; status: "available" | "occupied" | "closed" };
 type SpaceRecord = { id: string; productId: string; code: string; capacity: number };
 type SpaceReservation = { id: string; spaceId: string; productId: string; startsAt: string; endsAt: string; guestCount: number; customerName?: string; orderId?: string; holdExpiresAt?: string };
+type CashierShift = { id: string; opened_at: string; opening_cash: number; status: "open" | "closed" };
 
 const products: Product[] = [
   { id: "demo-1", name: "Kopi Susu Gula Aren Hub", category: "Kopi • Dingin", price: 22000, stock: 48, kind: "product", image: "https://images.unsplash.com/photo-1517701604599-bb29b565090c?auto=format&fit=crop&w=700&q=85", tag: "BESTSELLER" },
@@ -54,6 +55,11 @@ export default function Home() {
   const [spaces, setSpaces] = useState<SpaceRecord[]>([]);
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [activeReservation, setActiveReservation] = useState<SpaceReservation | null>(null);
+  const [cashierShift, setCashierShift] = useState<CashierShift | null>(null);
+  const [shiftDialogOpen, setShiftDialogOpen] = useState(false);
+  const [openingCashInput, setOpeningCashInput] = useState("0");
+  const [countedCashInput, setCountedCashInput] = useState("");
+  const [shiftBusy, setShiftBusy] = useState(false);
   const [bookingProduct, setBookingProduct] = useState<Product | null>(null);
   const [bookingStart, setBookingStart] = useState("");
   const [bookingDuration, setBookingDuration] = useState(2);
@@ -93,6 +99,9 @@ export default function Home() {
         storeId = membership.store_id;
       }
       if (current) setStoreId(storeId);
+      const { data: activeShift } = await supabase.from("cashier_shifts").select("id,opened_at,opening_cash,status")
+        .eq("store_id", storeId).eq("cashier_id", authUser.id).eq("status", "open").maybeSingle();
+      if (current) setCashierShift(activeShift as CashierShift | null);
       const [{ data: store }, { data, error }, { data: settings, error: settingsError }, { data: spaces }, { data: tableData }, { data: reservations }] = await Promise.all([
         supabase.from("stores").select("name").eq("id", storeId).maybeSingle(),
         supabase.from("products").select("id,name,category,kind,price,stock,image_url,tag").eq("store_id", storeId).eq("is_active", true).order("name"),
@@ -159,7 +168,7 @@ export default function Home() {
       if (!current) return;
       const activeUser = session?.user ?? null;
       setUser(activeUser);
-      if (!activeUser) { setCatalog([]); setCart([]); setSavedOrder(null); setOpenOrders([]); setSpaces([]); setTables([]); setActiveReservation(null); setSelectedTable(null); requestId.current = null; requestSignature.current = null; setAuthLoading(false); }
+      if (!activeUser) { setCatalog([]); setCart([]); setSavedOrder(null); setOpenOrders([]); setSpaces([]); setTables([]); setActiveReservation(null); setSelectedTable(null); setCashierShift(null); requestId.current = null; requestSignature.current = null; setAuthLoading(false); }
       else window.setTimeout(() => { if (current) void loadCatalog(activeUser); }, 0);
     });
     return () => { current = false; subscription.unsubscribe(); };
@@ -341,6 +350,7 @@ export default function Home() {
     void refreshCatalog();
   }
   async function checkout() {
+    if (isSupabaseConfigured && !cashierShift) { setShiftDialogOpen(true); setNotice("Buka shift kasir sebelum menerima pembayaran."); return; }
     let order = savedOrder;
     if (!order || !savedCartCurrent) order = await saveOrder();
     if (!order) return;
@@ -412,6 +422,39 @@ export default function Home() {
     void refreshCatalog();
     void refreshTables();
   }
+  async function openShift() {
+    if (!storeId) { setNotice("Gerai belum tersedia untuk membuka shift."); return; }
+    const amount = Number(openingCashInput);
+    if (!Number.isSafeInteger(amount) || amount < 0) { setNotice("Saldo awal harus berupa angka rupiah nol atau lebih."); return; }
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase) return;
+    setShiftBusy(true);
+    const { data, error } = await supabase.rpc("open_cashier_shift", { p_store_id: storeId, p_opening_cash: amount });
+    setShiftBusy(false);
+    if (error) { setNotice(`Shift gagal dibuka: ${error.message}`); return; }
+    const opened = Array.isArray(data) ? data[0] : data;
+    if (!opened) { setNotice("Supabase tidak mengembalikan shift aktif."); return; }
+    setCashierShift(opened as CashierShift);
+    setCountedCashInput(String(amount));
+    setShiftDialogOpen(false);
+    setNotice("Shift kasir berhasil dibuka.");
+  }
+  async function closeShift() {
+    if (!cashierShift) return;
+    const amount = Number(countedCashInput);
+    if (!Number.isSafeInteger(amount) || amount < 0) { setNotice("Kas terhitung harus berupa angka rupiah nol atau lebih."); return; }
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase) return;
+    setShiftBusy(true);
+    const { data, error } = await supabase.rpc("close_cashier_shift", { p_shift_id: cashierShift.id, p_counted_cash: amount });
+    setShiftBusy(false);
+    if (error) { setNotice(`Shift gagal ditutup: ${error.message}`); return; }
+    const summary = Array.isArray(data) ? data[0] : data;
+    if (!summary) { setNotice("Shift ditutup, tetapi ringkasannya tidak tersedia."); return; }
+    setCashierShift(null);
+    setShiftDialogOpen(false);
+    setNotice(`Shift ditutup · tunai Rp ${money(summary.cash_sales)} · non-tunai Rp ${money(summary.other_sales)} · selisih kas ${summary.cash_difference < 0 ? "-" : "+"}Rp ${money(Math.abs(summary.cash_difference)}).`);
+  }
   async function refreshCatalog() {
     const supabase = createSupabaseBrowserClient();
     if (!supabase || !storeId) return;
@@ -441,7 +484,7 @@ export default function Home() {
     <main className="pos-shell">
       <header className="topbar">
         <div className="brand"><div className="brand-mark"><Command size={19} strokeWidth={3} /></div><span>{storeName}</span><div className="online-chip"><i />{isSupabaseConfigured ? "ONLINE: KASIR" : "MODE DEMO"}</div></div>
-        <div className="top-actions"><div className="shift-chip"><Clock3 size={14} />Shift Aktif <b>—</b></div><button className="control-btn"><LockKeyhole size={15} />Tutup Shift</button><button className="icon-btn" aria-label="refresh"><Sparkles size={16} /></button><button className="icon-btn notification" aria-label="notifications"><Bell size={17} /></button>{user ? <button className="avatar" title={user.email ?? "Kasir"} onClick={async () => { await createSupabaseBrowserClient()?.auth.signOut(); }}>KS</button> : <button className="avatar">KS</button>}</div>
+        <div className="top-actions"><button className="shift-chip" onClick={() => setShiftDialogOpen(true)}><Clock3 size={14} />{cashierShift ? "Shift Aktif" : "Shift Tutup"}<b>{cashierShift ? new Date(cashierShift.opened_at).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "—"}</b></button><button className="control-btn" onClick={() => { setCountedCashInput(String(cashierShift?.opening_cash ?? 0)); setShiftDialogOpen(true); }}><LockKeyhole size={15} />{cashierShift ? "Tutup Shift" : "Buka Shift"}</button><button className="icon-btn" aria-label="refresh" onClick={() => void refreshCatalog()}><Sparkles size={16} /></button><button className="icon-btn notification" aria-label="notifications"><Bell size={17} /></button>{user ? <button className="avatar" title={user.email ?? "Kasir"} onClick={async () => { await createSupabaseBrowserClient()?.auth.signOut(); }}>KS</button> : <button className="avatar">KS</button>}</div>
       </header>
 
       <div className="workspace">
@@ -470,6 +513,23 @@ export default function Home() {
           <div className="payment-summary"><div><span>Subtotal ({cart.length} Item):</span><b>Rp {money(subtotal)}</b></div><div><span>Pajak ({rates.tax / 100}%):</span><b>Rp {money(tax)}</b></div><div><span>Biaya Layanan ({rates.service / 100}%):</span><b>Rp {money(service)}</b></div><div className="discount-row"><span>Diskon ({rates.discount / 100}%):</span><b>- Rp {money(discount)}</b></div><div className="grand-total"><span><small>TOTAL TAGIHAN {savedOrder ? "TERSIMPAN" : "SEMENTARA"}</small><b>IDR</b></span><strong>{money(total)}</strong></div><button className="pay-button" onClick={checkout} disabled={orderBusy}><CreditCard size={19} /> {savedOrder && savedCartCurrent ? "BAYAR [F2]" : "SIMPAN & BAYAR [F2]"}</button><div className="receipt-actions"><button onClick={() => void startNewOrder()}><BriefcaseBusiness size={14} />Order Baru</button><button disabled><Printer size={14} />Cetak Struk</button></div></div>
         </aside>
       </div>
+      <AnimatePresence>{shiftDialogOpen && <motion.div className="modal-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+        <motion.section className="payment-modal booking-modal" role="dialog" aria-modal="true" aria-labelledby="shift-title" initial={{ y: 14, scale: .98 }} animate={{ y: 0, scale: 1 }} exit={{ y: 10, opacity: 0 }}>
+          <button className="modal-close" aria-label="Tutup dialog shift" onClick={() => setShiftDialogOpen(false)}><X size={18} /></button>
+          <div className="modal-eyebrow">OPERASIONAL KASIR</div>
+          <h2 id="shift-title">{cashierShift ? "Tutup shift" : "Buka shift"}</h2>
+          {cashierShift ? <>
+            <p>Shift dimulai {new Date(cashierShift.opened_at).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" })} dengan saldo awal <strong>Rp {money(cashierShift.opening_cash)}</strong>.</p>
+            <label>Kas terhitung saat ini<input type="number" min={0} step={1000} value={countedCashInput} onChange={(event) => setCountedCashInput(event.target.value)} placeholder="Hitung uang tunai di laci" /></label>
+            <small className="payment-legal">Saat shift ditutup, aplikasi menghitung tunai yang diharapkan dan mencatat selisih untuk rekonsiliasi.</small>
+            <button className="login-submit" onClick={() => void closeShift()} disabled={shiftBusy}><LockKeyhole size={17} />{shiftBusy ? "Menutup shift…" : "Tutup shift & rekonsiliasi"}</button>
+          </> : <>
+            <p>Masukkan saldo awal laci kas. Pembayaran hanya bisa diterima setelah shift dibuka.</p>
+            <label>Saldo awal tunai<input type="number" min={0} step={1000} value={openingCashInput} onChange={(event) => setOpeningCashInput(event.target.value)} /></label>
+            <button className="login-submit" onClick={() => void openShift()} disabled={shiftBusy}><Clock3 size={17} />{shiftBusy ? "Membuka shift…" : "Buka shift kasir"}</button>
+          </>}
+        </motion.section>
+      </motion.div>}</AnimatePresence>
       <AnimatePresence>{bookingProduct && <motion.div className="modal-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
         <motion.section className="payment-modal booking-modal" role="dialog" aria-modal="true" aria-labelledby="booking-title" initial={{ y: 14, scale: .98 }} animate={{ y: 0, scale: 1 }} exit={{ y: 10, opacity: 0 }}>
           <button className="modal-close" aria-label="Tutup reservasi" onClick={() => setBookingProduct(null)}><X size={18} /></button>

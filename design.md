@@ -41,6 +41,7 @@ Outline utama 2–3 px dengan shadow offset 2–3 px tanpa blur. Kartu konten me
 - Dialog shift: saldo awal saat buka; kas terhitung dan ringkasan tunai/non-tunai saat tutup, dengan selisih kas yang terlihat jelas.
 - Panel admin: tab katalog, tarif gerai, dan laporan harian; akses panel hanya tampil untuk owner/admin.
 - Laporan harian memakai ringkasan kartu dan daftar transaksi pembayaran lunas dengan kanal dan waktu.
+- Struk menampilkan gerai, nomor bon, waktu, meja, item dan kuantitas, rincian biaya, total, serta metode pembayaran; tata letak cetak dioptimalkan untuk kertas receipt sempit melalui dialog cetak browser.
 - Keadaan perlu didesain lanjut: kosong, loading/skeleton, stok habis, ruang bentrok, pembayaran pending/gagal/berhasil, koneksi offline, dan rekonsiliasi lintas shift.
 
 ## Catatan implementasi

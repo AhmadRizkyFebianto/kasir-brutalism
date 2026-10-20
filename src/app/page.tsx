@@ -21,6 +21,8 @@ type SpaceReservation = { id: string; spaceId: string; productId: string; starts
 type CashierShift = { id: string; opened_at: string; opening_cash: number; status: "open" | "closed" };
 type CatalogDraft = { id: string; sku: string; name: string; category: string; price: string; stock: string; image_url: string; tag: string };
 type ReportPayment = { id: string; order_id: string; amount: number; payment_type: string | null; paid_at: string | null; };
+type ReceiptLine = { name: string; quantity: number; unitPrice: number; lineTotal: number };
+type ReceiptData = { code: string; storeName: string; paidAt: string; method: string; tableCode: string | null; subtotal: number; discount: number; tax: number; service: number; total: number; lines: ReceiptLine[] };
 
 const products: Product[] = [
   { id: "demo-1", name: "Kopi Susu Gula Aren Hub", category: "Kopi • Dingin", price: 22000, stock: 48, kind: "product", image: "https://images.unsplash.com/photo-1517701604599-bb29b565090c?auto=format&fit=crop&w=700&q=85", tag: "BESTSELLER" },
@@ -71,6 +73,8 @@ export default function Home() {
   const [rateDraft, setRateDraft] = useState({ tax: "0", service: "0", discount: "0" });
   const [reportPayments, setReportPayments] = useState<ReportPayment[]>([]);
   const [reportLoading, setReportLoading] = useState(false);
+  const [lastReceipt, setLastReceipt] = useState<ReceiptData | null>(null);
+  const [receiptOpen, setReceiptOpen] = useState(false);
   const [bookingProduct, setBookingProduct] = useState<Product | null>(null);
   const [bookingStart, setBookingStart] = useState("");
   const [bookingDuration, setBookingDuration] = useState(2);
@@ -399,7 +403,7 @@ export default function Home() {
       const response = await fetch("/api/payments/cash", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderId: paymentOrder.id }) });
       const result = await response.json().catch(() => ({})) as { paid?: boolean; error?: string };
       if (!response.ok || !result.paid) { setPaymentMessage(result.error ?? "Pembayaran tunai belum dapat dicatat."); return; }
-      completePayment("Pembayaran tunai berhasil dicatat.");
+      await completePayment("Pembayaran tunai berhasil dicatat.", "Tunai");
     } catch { setPaymentMessage("Tidak dapat terhubung ke server pembayaran."); }
     finally { setPaymentBusy(false); }
   }
@@ -410,7 +414,7 @@ export default function Home() {
       const response = await fetch("/api/payments/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderId: paymentOrder.id }) });
       const result = await response.json().catch(() => ({})) as { orderStatus?: string; paymentStatus?: string; error?: string };
       if (!response.ok) { setPaymentMessage(result.error ?? "Status pembayaran belum dapat diperiksa."); return; }
-      if (result.orderStatus === "paid") completePayment("Pembayaran berhasil dikonfirmasi Midtrans.");
+      if (result.orderStatus === "paid") await completePayment("Pembayaran berhasil dikonfirmasi Midtrans.", "Midtrans");
       else if (result.orderStatus === "paid_review") { setPaymentMessage("Pembayaran masuk, tetapi stok perlu pemeriksaan admin."); await refreshCatalog(); }
       else if (result.orderStatus === "open") {
         setSavedOrder((current) => current ? { ...current, status: "open" } : current);
@@ -422,7 +426,29 @@ export default function Home() {
     } catch { setPaymentMessage("Tidak dapat menghubungi server status pembayaran."); }
     finally { setPaymentBusy(false); }
   }
-  function completePayment(message: string) {
+  async function completePayment(message: string, method: string) {
+    const completedOrder = paymentOrder;
+    if (completedOrder) {
+      const supabase = createSupabaseBrowserClient();
+      let receiptOrder: { order_code: string; subtotal: number; discount_amount: number; tax_amount: number; service_amount: number; total_amount: number; paid_at: string | null; table_code: string | null } | null = null;
+      let receiptItems: { product_name: string; quantity: number; unit_price: number; line_total: number }[] = [];
+      if (supabase) {
+        const [orderResult, itemResult] = await Promise.all([
+          supabase.from("orders").select("order_code,subtotal,discount_amount,tax_amount,service_amount,total_amount,paid_at,table_code").eq("id", completedOrder.id).maybeSingle(),
+          supabase.from("order_items").select("product_name,quantity,unit_price,line_total").eq("order_id", completedOrder.id).order("created_at"),
+        ]);
+        receiptOrder = orderResult.data;
+        receiptItems = itemResult.data ?? [];
+      }
+      setLastReceipt({
+        code: receiptOrder?.order_code ?? completedOrder.code, storeName, paidAt: receiptOrder?.paid_at ?? new Date().toISOString(), method,
+        tableCode: receiptOrder?.table_code ?? completedOrder.tableCode ?? null,
+        subtotal: receiptOrder?.subtotal ?? completedOrder.subtotal, discount: receiptOrder?.discount_amount ?? completedOrder.discount,
+        tax: receiptOrder?.tax_amount ?? completedOrder.tax, service: receiptOrder?.service_amount ?? completedOrder.service, total: receiptOrder?.total_amount ?? completedOrder.total,
+        lines: receiptItems.length ? receiptItems.map((item) => ({ name: item.product_name, quantity: item.quantity, unitPrice: item.unit_price, lineTotal: item.line_total })) : cart.map((line) => ({ name: line.product.name, quantity: line.qty, unitPrice: line.product.price, lineTotal: line.product.price * line.qty })),
+      });
+      setReceiptOpen(true);
+    }
     if (paymentOrder) setOpenOrders((current) => current.filter((order) => order.id !== paymentOrder.id));
     setSavedOrder(null);
     setCart([]);
@@ -605,9 +631,23 @@ export default function Home() {
         <aside className="order-panel"><div className="order-heading"><h2><span>▤</span> PESANAN AKTIF</h2><button><i />DINING &amp; RESERVASI<ChevronDown size={12} /></button></div><button className="active-order" onClick={() => setOrderMenuOpen((open) => !open)}><span className="table-code">{savedOrder ? savedOrder.code.slice(-4) : "BON"}</span><span className="order-name"><b>{savedOrder ? savedOrder.code : "Bon belum disimpan"}</b><small>{savedOrder?.status === "pending_payment" ? "Menunggu pembayaran" : selectedTable ? `Meja ${selectedTable}${savedOrder ? " · bon tersimpan" : " · bon baru"}` : savedOrder ? "Draft tersimpan · dapat diperbarui" : "Pilih meja atau mulai bon baru"}</small></span><span className="edit-order"><ChevronDown size={15} /></span></button>
           <AnimatePresence>{orderMenuOpen && <motion.div className="open-order-menu" initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }}><div className="open-order-title">BON TERBUKA ({openOrders.length})</div>{openOrders.length ? openOrders.map((order) => <div className="open-order-row" key={order.id}><button onClick={() => void selectOpenOrder(order)}><b>{order.code}</b><span>Rp {money(order.total)}</span></button><button className="cancel-order" aria-label={`Batalkan ${order.code}`} onClick={() => void cancelOpenOrder(order)}><Trash2 size={14} /></button></div>) : <p>Belum ada bon tersimpan.</p>}</motion.div>}</AnimatePresence>
           <div className="cart-list"><AnimatePresence initial={false}>{cart.map((line) => <motion.div className="cart-line" key={line.product.id} layout initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}><div className="line-heading"><b>{line.product.name}</b><button onClick={() => update(line.product.id, -line.qty)} disabled={line.product.kind === "space" && activeReservation?.productId === line.product.id} aria-label="hapus item"><Trash2 size={15} /></button></div>{line.product.kind === "space" && <small className="space-rental">{activeReservation ? `Durasi: ${line.qty} jam · ${new Date(activeReservation.startsAt).toLocaleString("id-ID", { dateStyle: "short", timeStyle: "short" })}` : `Durasi: ${line.qty} jam · reservasi belum dibuat`}</small>}<div className="line-bottom"><div className="qty-stepper">{line.product.kind === "space" ? <span>{line.qty} jam</span> : <><button onClick={() => update(line.product.id, -1)} aria-label="kurangi"><Minus size={13} /></button><span>{line.qty}</span><button onClick={() => update(line.product.id, 1)} aria-label="tambah"><Plus size={13} /></button></>}</div><b>Rp {money(line.product.price * line.qty)}</b></div></motion.div>)}</AnimatePresence>{cart.length === 0 && <div className="empty-cart">Bon masih kosong.<br />Pilih menu untuk mulai.</div>}</div>
-          <div className="payment-summary"><div><span>Subtotal ({cart.length} Item):</span><b>Rp {money(subtotal)}</b></div><div><span>Pajak ({rates.tax / 100}%):</span><b>Rp {money(tax)}</b></div><div><span>Biaya Layanan ({rates.service / 100}%):</span><b>Rp {money(service)}</b></div><div className="discount-row"><span>Diskon ({rates.discount / 100}%):</span><b>- Rp {money(discount)}</b></div><div className="grand-total"><span><small>TOTAL TAGIHAN {savedOrder ? "TERSIMPAN" : "SEMENTARA"}</small><b>IDR</b></span><strong>{money(total)}</strong></div><button className="pay-button" onClick={checkout} disabled={orderBusy}><CreditCard size={19} /> {savedOrder && savedCartCurrent ? "BAYAR [F2]" : "SIMPAN & BAYAR [F2]"}</button><div className="receipt-actions"><button onClick={() => void startNewOrder()}><BriefcaseBusiness size={14} />Order Baru</button><button disabled><Printer size={14} />Cetak Struk</button></div></div>
+          <div className="payment-summary"><div><span>Subtotal ({cart.length} Item):</span><b>Rp {money(subtotal)}</b></div><div><span>Pajak ({rates.tax / 100}%):</span><b>Rp {money(tax)}</b></div><div><span>Biaya Layanan ({rates.service / 100}%):</span><b>Rp {money(service)}</b></div><div className="discount-row"><span>Diskon ({rates.discount / 100}%):</span><b>- Rp {money(discount)}</b></div><div className="grand-total"><span><small>TOTAL TAGIHAN {savedOrder ? "TERSIMPAN" : "SEMENTARA"}</small><b>IDR</b></span><strong>{money(total)}</strong></div><button className="pay-button" onClick={checkout} disabled={orderBusy}><CreditCard size={19} /> {savedOrder && savedCartCurrent ? "BAYAR [F2]" : "SIMPAN & BAYAR [F2]"}</button><div className="receipt-actions"><button onClick={() => void startNewOrder()}><BriefcaseBusiness size={14} />Order Baru</button><button onClick={() => lastReceipt && setReceiptOpen(true)} disabled={!lastReceipt}><Printer size={14} />Cetak Struk</button></div></div>
         </aside>
       </div>
+      <AnimatePresence>{receiptOpen && lastReceipt && <motion.div className="modal-backdrop receipt-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+        <motion.section className="receipt-modal" role="dialog" aria-modal="true" aria-labelledby="receipt-title" initial={{ y: 14, scale: .98 }} animate={{ y: 0, scale: 1 }} exit={{ y: 10, opacity: 0 }}>
+          <div className="receipt-paper">
+            <div className="receipt-brand">{lastReceipt.storeName}</div><div className="receipt-caption">BUKTI PEMBAYARAN</div>
+            <div className="receipt-meta"><span>No. Bon</span><b>{lastReceipt.code}</b><span>Waktu</span><b>{new Date(lastReceipt.paidAt).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" })}</b><span>Metode</span><b>{lastReceipt.method}</b>{lastReceipt.tableCode && <><span>Meja</span><b>{lastReceipt.tableCode}</b></>}</div>
+            <div className="receipt-divider" />
+            <div className="receipt-lines">{lastReceipt.lines.map((line, index) => <div key={`${line.name}-${index}`}><span>{line.name}<small>{line.quantity} × Rp {money(line.unitPrice)}</small></span><b>Rp {money(line.lineTotal)}</b></div>)}</div>
+            <div className="receipt-divider" />
+            <div className="receipt-totals"><div><span>Subtotal</span><b>Rp {money(lastReceipt.subtotal)}</b></div>{lastReceipt.discount > 0 && <div><span>Diskon</span><b>- Rp {money(lastReceipt.discount)}</b></div>}{lastReceipt.tax > 0 && <div><span>Pajak</span><b>Rp {money(lastReceipt.tax)}</b></div>}{lastReceipt.service > 0 && <div><span>Layanan</span><b>Rp {money(lastReceipt.service)}</b></div>}<div className="receipt-grand"><span>TOTAL</span><b>Rp {money(lastReceipt.total)}</b></div></div>
+            <div className="receipt-thanks">Terima kasih telah berkunjung!</div>
+          </div>
+          <div className="receipt-controls"><button className="control-btn" onClick={() => setReceiptOpen(false)}>Tutup</button><button className="pay-button" onClick={() => window.print()}><Printer size={16} />Cetak struk</button></div>
+        </motion.section>
+      </motion.div>}</AnimatePresence>
       <AnimatePresence>{adminOpen && <motion.div className="modal-backdrop admin-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
         <motion.section className="payment-modal admin-modal" role="dialog" aria-modal="true" aria-labelledby="admin-title" initial={{ y: 14, scale: .98 }} animate={{ y: 0, scale: 1 }} exit={{ y: 10, opacity: 0 }}>
           <button className="modal-close" aria-label="Tutup pengaturan" onClick={() => setAdminOpen(false)}><X size={18} /></button>
